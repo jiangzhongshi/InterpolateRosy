@@ -4,7 +4,7 @@ Optimizer::Optimizer(MultiResolutionHierarchy &mRes)
     : mRes(mRes), mRunning(false), mOptimizeOrientations(false),
       mOptimizePositions(false), mAlignment(true), mRandomization(true), mExtrinsic(true),
       mHierarchy(true), mLevel(0), mLevelIterations(0), mMaxIterations(20) {
-    mThread = std::thread(&Optimizer::run, this);
+   // mThread = std::thread(&Optimizer::run, this);
 }
 
 void Optimizer::setOptimizeOrientations(bool value) {

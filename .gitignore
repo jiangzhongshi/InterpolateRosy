@@ -19,3 +19,7 @@ im
 im_resources.h
 im_resources.cpp
 *.pyc
+.vscode/
+cmake-build-debug/
+.idea/
+.ipynb_checkpoints/

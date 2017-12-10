@@ -15,14 +15,27 @@ MultiResolutionHierarchy::MultiResolutionHierarchy() {
     mQ = { MatrixXf::Zero(4, 1) };
     mBVH = nullptr;
 	ratio_scale = 3.0;
-	tElen_ratio = 1.0;
-	tet_elen = 0.6;
-	re_color = true;
-	Qquadric = splitting = decomposes = doublets = triangles = false;
+    splitting = triangles = false;
+}
+
+bool MultiResolutionHierarchy::load(const Eigen::MatrixXf& V, const MatrixXu& F) {
+	mV.resize(1);
+	mV[0] = V;
+	mF = F;
+
+	mAABB = AABB(
+			mV[0].rowwise().minCoeff(),
+			mV[0].rowwise().maxCoeff()
+	);
+
+	ms = compute_mesh_stats(mF, mV[0]);
+	diagonalLen = 3 * (mAABB.max - mAABB.min).norm() / 100;
+	ratio_scale = ms.mAverageEdgeLength * 3.5 / diagonalLen;
+
+	return true;
 }
 
 bool MultiResolutionHierarchy::load(const std::string &filename) {
-    std::lock_guard<ordered_lock> lock(mMutex);
 
     mV.resize(1);
 	mV[0] = MatrixXf::Zero(3, 1);
@@ -33,22 +46,10 @@ bool MultiResolutionHierarchy::load(const std::string &filename) {
 	}
 	catch (const std::exception &e) {
 		std::cout << "failed loading obj file." << std::endl;
-#ifdef T_VTAG
-		std::vector<std::vector<uint32_t>> mFs2D_O;
-		load_off(filename, mFs2D_O, mV[0]);
-		std::vector<tuple_E> mEs_O;
-		std::vector<std::vector<uint32_t>> mFes_O;
-		construct_tEs_tFEs(mFs2D_O, mFes_O, mEs_O);
-		tagging_singularities_T_nodes(mV[0], mEs_O, mFs2D_O);
-		char path[300];
-		sprintf(path, "%s%s", filename.c_str(), "_V_flag.txt");
-		write_Vertex_Types_TXT(V_flag, path);
-
-#endif
 		return false;
 	}
 
-	mV.resize(1);
+//	mV.resize(1);
 	mAABB = AABB(
 		mV[0].rowwise().minCoeff(),
 		mV[0].rowwise().maxCoeff()
@@ -57,7 +58,6 @@ bool MultiResolutionHierarchy::load(const std::string &filename) {
 	ms = compute_mesh_stats(mF, mV[0]);
 	diagonalLen = 3 * (mAABB.max - mAABB.min).norm() / 100;
 	ratio_scale = ms.mAverageEdgeLength * 3.5 / diagonalLen;
-	tet_elen = tElen_ratio * ratio_scale * diagonalLen * 0.3;
 
     return true;
 }
@@ -111,186 +111,7 @@ MeshStats MultiResolutionHierarchy::compute_mesh_stats(const MatrixXu &F_, const
 
 	return stats;
 }
-bool MultiResolutionHierarchy::tet_meshing()
-{
-	MatrixXf V;
-	MatrixXu F;
-	if(!tetMesh()){
-		V = mV[0];
-		F = mF;
-	}
-	else {
-		V = mV[0];
-		F = mF;
-	}
-	Vector3f minV = mV[0].rowwise().minCoeff() + Vector3f(-0.1, -0.1, -0.1),
-		maxV = mV[0].rowwise().maxCoeff() + Vector3f(0.1, 0.1, 0.1);
 
-	MatrixXf Vs(3, 8);
-	for(uint32_t i=0;i<8;i++)
-		for (uint32_t j = 0; j < 3; j++) {
-			short bit = ((1 << j) & i) >> j;
-			Vs(j, i) = (bit *minV[j] + (1 - bit)*maxV[j]);
-		}
-	MatrixXu tris_Cube(12, 3);
-	tris_Cube <<
-		0, 2, 3,
-		0, 3, 1,
-		3, 2, 7,
-		7, 2, 6,
-		3, 7, 5,
-		3, 5, 1,
-		1, 5, 0,
-		0, 5, 4,
-		4, 5, 7,
-		4, 7, 6,
-		4, 6, 2,
-		4, 2, 0;
-	tris_Cube.transposeInPlace();
-	orient_triangle_mesh_index(Vs, tris_Cube);
-
-	tetgenio in_bg_, in, addin, in_bg, out_, out;
-
-	in_bg_.numberofpoints = 8;
-	in_bg_.pointlist = new REAL[8 * 3];
-	for (uint32_t i = 0; i < 8; i++)
-		for (uint32_t j = 0; j < 3; j++)
-			in_bg_.pointlist[3 * i + j] = Vs(j, i);
-	in_bg_.numberoffacets = 12;
-	in_bg_.facetlist = new tetgenio::facet[12];
-	in_bg_.facetmarkerlist = new int[in_bg_.numberoffacets];
-	tetgenio::facet *f0;
-	tetgenio::polygon *p0;
-	for (uint32_t i = 0; i < in_bg_.numberoffacets; i++) {
-		f0 = &in_bg_.facetlist[i];
-		f0->numberofpolygons = 1;
-		f0->polygonlist = new tetgenio::polygon[f0->numberofpolygons];
-		f0->numberofholes = 0;
-		f0->holelist = NULL;
-		p0 = &f0->polygonlist[0];
-		p0->numberofvertices = 3;
-		p0->vertexlist = new int[p0->numberofvertices];
-		p0->vertexlist[0] = tris_Cube(0, i);
-		p0->vertexlist[1] = tris_Cube(1, i);
-		p0->vertexlist[2] = tris_Cube(2, i);
-		in_bg_.facetmarkerlist[i] = 1;
-	}
-	tetrahedralize("pq", &in_bg_, &out_);
-
-	in_bg.numberofpoints = out_.numberofpoints;
-	in_bg.pointlist = new REAL[in_bg.numberofpoints * 3];
-	for (uint32_t i = 0; i < 3 * out_.numberofpoints; i++)
-		in_bg.pointlist[i] = out_.pointlist[i];
-	in_bg.numberoftetrahedra = out_.numberoftetrahedra;
-	in_bg.tetrahedronlist = new int[out_.numberoftetrahedra * 4];
-	for (uint32_t i = 0; i < 4 * out_.numberoftetrahedra; i++)
-		in_bg.tetrahedronlist[i] = out_.tetrahedronlist[i];
-	in_bg.pointmtrlist = new double[in_bg.numberofpoints];
-	in_bg.numberofpointmtrs = 1;
-	std::cout << "target tet edge len: " << tet_elen << endl;
-	for (int i = 0; i<in_bg.numberofpoints; i++)
-		in_bg.pointmtrlist[i] = tet_elen;
-	
-	tetgenio::facet *f;
-	tetgenio::polygon *p;
-
-	in.firstnumber = 0;
-
-	in.numberofpoints = V.cols();
-	in.pointlist = new REAL[in.numberofpoints * 3];
-	in.pointmarkerlist = new int[in.numberofpoints];
-	in.pointmtrlist = new double[in.numberofpoints];
-	for (int i = 0; i<in.numberofpoints; i++)
-	{
-		in.pointlist[3 * i + 0] = V(0,i);
-		in.pointlist[3 * i + 1] = V(1,i);
-		in.pointlist[3 * i + 2] = V(2,i);
-		in.pointmarkerlist[i] = 1;
-	}
-
-	in.numberoffacets = F.cols();
-	in.facetlist = new tetgenio::facet[in.numberoffacets];
-	in.facetmarkerlist = new int[in.numberoffacets];
-
-	for (int i = 0; i<in.numberoffacets; i++)
-	{
-		f = &in.facetlist[i];
-		f->numberofpolygons = 1;
-		f->polygonlist = new tetgenio::polygon[f->numberofpolygons];
-		f->numberofholes = 0;
-		f->holelist = NULL;
-		p = &f->polygonlist[0];
-		p->numberofvertices = 3;
-		p->vertexlist = new int[p->numberofvertices];
-		p->vertexlist[0] = F(0,i);
-		p->vertexlist[1] = F(1,i);
-		p->vertexlist[2] = F(2,i);
-
-		in.facetmarkerlist[i] = 1;
-	}
-	tetrahedralize("pqm", &in, &out, &addin, &in_bg);
-	mV[0].setZero(); mV[0].resize(3, out.numberofpoints);
-	for (uint32_t i = 0; i < out.numberofpoints; i++) {
-		for (uint32_t j = 0; j < 3; j++)
-			mV[0](j, i) = out.pointlist[3 * i + j];
-	}
-	mT.setZero(); mT.resize(4, out.numberoftetrahedra);
-	for (int i = 0; i < out.numberoftetrahedra; i++){
-		for (uint32_t j = 0; j < 4; j++)
-			mT(j, i) = out.tetrahedronlist[4 * i + j];
-	}
-
-	//Fs
-	std::vector<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t, bool>> tempF;
-	tempF.reserve(mT.cols() * 4);
-	std::vector<Vector3u> Fs;
-	for (uint32_t t = 0; t < mT.cols(); ++t) {
-		for (uint32_t f = 0; f < 4; ++f) {
-			uint32_t v0 = mT(tet_faces[f][0], t), v1 = mT(tet_faces[f][1], t), v2 = mT(tet_faces[f][2], t);
-			if (v0 > v1) std::swap(v0, v1);
-			if (v1 > v2) std::swap(v2, v1);
-			if (v0 > v1) std::swap(v0, v1);
-			tempF.push_back(std::make_tuple(v0, v1, v2, t, true));
-		}
-	}
-	std::sort(tempF.begin(), tempF.end());
-	Fs.clear();
-	Fs.reserve(tempF.size() / 3);
-	int F_num = -1, f_b = 0; std::vector<bool> f_boundary; f_boundary.reserve(tempF.size() / 2);
-	for (uint32_t i = 0; i < tempF.size(); ++i) {
-		if (i == 0 || (i != 0 &&
-			(std::get<0>(tempF[i]) != std::get<0>(tempF[i - 1]) ||
-				std::get<1>(tempF[i]) != std::get<1>(tempF[i - 1]) ||
-				std::get<2>(tempF[i]) != std::get<2>(tempF[i - 1])))) {
-			F_num++;
-			Vector3u v(std::get<0>(tempF[i]), std::get<1>(tempF[i]), std::get<2>(tempF[i]));
-			Fs.push_back(v);
-			f_boundary.push_back(true);
-			f_b++;
-		}
-		else {
-			f_boundary[F_num] = false;
-			f_b--;
-		}
-	}
-	vector<vector<uint32_t>> HF(f_b);
-	mF.resize(3, f_b); f_b = 0;
-	for (uint32_t f = 0; f < F_num+1; f++)
-		if (f_boundary[f]) {
-			mF.col(f_b) = Fs[f];
-			HF[f_b].push_back(Fs[f][0]);
-			HF[f_b].push_back(Fs[f][1]);
-			HF[f_b++].push_back(Fs[f][2]);
-		}
-
-	orient_polygon_mesh(mV[0], HF);
-	for (uint32_t i = 0; i < HF.size(); i++)
-		for (uint32_t j = 0; j < 3; j++)mF(j, i) = HF[i][j];
-	//orient_triangle_mesh_index(mV[0], mF);
-
-	std::cout << "V, F, T: " << mV[0].cols() << " " << mF.cols() << " " << mT.cols() << endl;
-	return true;
-}
 void MultiResolutionHierarchy::build() {
 	Timer<> timer;
 	mV.resize(1);
@@ -321,8 +142,6 @@ void MultiResolutionHierarchy::build() {
 		if (mN[0].col(i) != Vector3f::Zero()) {
 			Vector3f d1 = mN[0].col(i) / count[i],
 				d2 = mN[0].col(i).normalized();
-			if (tetMesh() && d1.dot(d2) < 0.85f)
-				d2 = Vector3f::Zero();;//
 			mN[0].col(i) = d2;
 			if (d2 != Vector3f::Zero())
 				mC[0].col(i) = mV[0].col(i);
@@ -339,32 +158,6 @@ void MultiResolutionHierarchy::build() {
 	mL.clear(); mP.clear();
 	nV_boundary_flag[0].clear(); nV_boundary_flag[0].resize(mV[0].cols(), false);
 
-	if (tetMesh()) {
-		for (uint32_t i = 0; i < mF.cols(); ++i) for (uint32_t j = 0; j < 3; j++) nV_boundary_flag[0][mF(j, i)] = true;
-
-		std::vector<std::pair<uint32_t, uint32_t>> adj;
-		adj.reserve(mT.cols() * 12);
-		for (uint32_t t = 0; t < mT.cols(); ++t) {
-			const int tet_edges[6][2] = {
-				{ 0, 1 },{ 0, 2 },{ 0, 3 },{ 1, 2 },{ 1, 3 },{ 2, 3 } };
-			for (int i = 0; i < 6; ++i) {
-				uint32_t v0 = mT(tet_edges[i][0], t);
-				uint32_t v1 = mT(tet_edges[i][1], t);
-				adj.push_back(std::make_pair(v0, v1));
-				adj.push_back(std::make_pair(v1, v0));
-			}
-		}
-		std::sort(adj.begin(), adj.end());
-		adj.erase(std::unique(adj.begin(), adj.end()), adj.end());
-
-		std::vector<Triplet> triplets;
-		for (auto item : adj)
-			triplets.push_back(Triplet(item.first, item.second, 1.f));
-		mL.resize(1);
-		mL[0].resize(mV[0].cols(), mV[0].cols());
-		mL[0].setFromTriplets(triplets.begin(), triplets.end());
-	}
-	else {
 
 		construct_tEs_tFEs(mF, nFes, nEs);
 		//nV_nes, tag boundary V
@@ -398,7 +191,6 @@ void MultiResolutionHierarchy::build() {
 		mL.resize(1);
 		mL[0].resize(mV[0].cols(), mV[0].cols());
 		mL[0].setFromTriplets(triplets.begin(), triplets.end());
-	}
 	for (uint32_t i = 0; i < (uint32_t)mL[0].rows(); ++i) {
 		Float sum = 1 / mL[0].row(i).sum();
 		mL[0].row(i) *= sum;
@@ -445,8 +237,6 @@ void MultiResolutionHierarchy::build() {
 				edges.insert(WeightedEdge(it.row(), it.col(), length));
 			}
 		}
-		if (mL.size() == 1)
-			mAverageEdgeLength = edgeSum / edgeCount;
 
 		std::vector<Triplet> P_triplets, R_triplets;
 		std::vector<Vector3f> V_next, N_next, C_next;
@@ -471,14 +261,8 @@ void MultiResolutionHierarchy::build() {
 			Vector3f c = C.col(e.i0) + C.col(e.i1);
 			if (N.col(e.i0) != Vector3f::Zero() &&
 				N.col(e.i1) != Vector3f::Zero()) {
-				if (tetMesh()) {
-					n = N.col(e.i0);
-					c = C.col(e.i0);
-				}
-				else {
 					n.normalize();
 					c *= 0.5f;
-				}
 			}
 
 			N_next.push_back(n);
@@ -537,18 +321,6 @@ void MultiResolutionHierarchy::build() {
 	mO.resize(mL.size());
 
 	pcg32 rng;
-	if (tetMesh()) {
-		for (uint32_t i = 0; i < mL.size(); ++i) {
-			mQ[i].resize(4, mV[i].cols());
-			mO[i].resize(3, mV[i].cols());
-			for (uint32_t j = 0; j < mV[i].cols(); ++j) {
-				mQ[i].col(j) = Quaternion::Random(rng);
-
-				mO[i].col(j) = aabbRand(mAABB, rng);
-			}
-		}
-	}
-	else {
 		for (uint32_t i = 0; i < mL.size(); ++i) {
 			mQ[i].resize(3, mV[i].cols());
 			mO[i].resize(3, mV[i].cols());
@@ -571,10 +343,16 @@ void MultiResolutionHierarchy::build() {
 						direct1 += direct_;
 					}
 
-					if (std::abs(direct0.dot(direct1)) < 0.5)
-						mQ[i].col(j) = direct0;
-					else
-						mQ[i].col(j) = (direct0 + direct1).normalized();
+					auto newdir = direct0;
+//					if (std::abs(direct0.dot(direct1)) < 0.5)
+						newdir = direct0;
+//					else
+//						newdir = (direct0 + direct1).normalized();
+//					if(newdir.hasNaN()) {
+//						std::cout<<newdir<<std::endl;
+//						std::cout<<"La";
+//					}
+                    mQ[i].col(j) = newdir;
 					continue;
 				}
 
@@ -604,11 +382,9 @@ void MultiResolutionHierarchy::build() {
 				}
 			}
 		}
-	}
 	mOrientationIterations = 0;
-	mPositionIterations = 0;
 
-	mBVH = new BVH(&mF, &mV[0], mAABB);
+    mBVH = new BVH(&mF, &mV[0], mAABB);
 	mBVH->build();
 	mScale = diagonalLen * ratio_scale;
 	mInvScale = 1.f / mScale;
@@ -676,138 +452,4 @@ void MultiResolutionHierarchy::construct_tEs_tFEs(std::vector<std::vector<uint32
 		mtFes[std::get<2>(temp[i])][std::get<3>(temp[i])] = E_num;
 	}
 }
-void MultiResolutionHierarchy::orient_polygon_mesh(MatrixXf &HV, vector<vector<uint32_t>> &HF, vector<vector<uint32_t>> &HFE, vector<tuple_E> &Es) {
-	//orient surface
-	if (!HF.size())return;
-	uint32_t start_f = 0;
-	vector<bool> flag(HF.size(), true);
-	vector<vector<uint32_t>> Efs(Es.size());
-	for (uint32_t i = 0; i < HFE.size();i++)for (auto e : HFE[i])Efs[e].push_back(i);
-	flag[start_f] = false;
-	std::queue<uint32_t> pf_temp; pf_temp.push(start_f);
-	while (!pf_temp.empty()) {
-		uint32_t fid = pf_temp.front(); pf_temp.pop();
-		for (auto eid : HFE[fid]) for (auto nfid : Efs[eid]) {
-			if (!flag[nfid]) continue;
-			uint32_t v0 = std::get<0>(Es[eid]), v1 = std::get<1>(Es[eid]);
-			int32_t v0_pos = std::find(HF[fid].begin(), HF[fid].end(), v0) - HF[fid].begin();
-			int32_t v1_pos = std::find(HF[fid].begin(), HF[fid].end(), v1) - HF[fid].begin();
 
-			if ((v0_pos + 1) % HF[fid].size() != v1_pos) swap(v0, v1);
-
-			int32_t v0_pos_ = std::find(HF[nfid].begin(), HF[nfid].end(), v0) - HF[nfid].begin();
-			int32_t v1_pos_ = std::find(HF[nfid].begin(), HF[nfid].end(), v1) - HF[nfid].begin();
-
-			if ((v0_pos_ + 1) % HF[nfid].size() == v1_pos_) std::reverse(HF[nfid].begin(), HF[nfid].end());
-
-			pf_temp.push(nfid); flag[nfid] = false;
-		}
-		if (pf_temp.empty()) {
-			bool found = false;
-			for (uint32_t i = 0; i < flag.size(); i++)if (flag[i]) {
-				start_f = i;
-				flag[start_f] = false; pf_temp.push(start_f);
-				found = true;
-			}
-			if (!found) break;
-		}
-	}
-
-	Float res = 0;
-	Vector3f ori; ori.setZero();
-	for (uint32_t i = 0; i < HF.size(); i++) {
-		auto &fvs = HF[i];
-		Vector3f center; center.setZero(); for (auto vid : fvs) center += HV.col(vid); center /= fvs.size();
-
-		for (uint32_t j = 0; j < fvs.size(); j++) {
-			Vector3f x = HV.col(fvs[j]) - ori, y = HV.col(fvs[(j + 1) % fvs.size()]) - ori, z = center - ori;
-			res += -((x[0] * y[1] * z[2] + x[1] * y[2] * z[0] + x[2] * y[0] * z[1]) - (x[2] * y[1] * z[0] + x[1] * y[0] * z[2] + x[0] * y[2] * z[1]));
-		}
-	}
-	if (res > 0) {
-		for (uint32_t i = 0; i < HF.size(); i++) std::reverse(HF[i].begin(), HF[i].end());
-	}
-}
-void MultiResolutionHierarchy::orient_polygon_mesh(MatrixXf &HV, vector<vector<uint32_t>> &HF) {
-	//orient surface
-	if (!HF.size())return;
-
-	vector<vector<uint32_t>> HFE(HF.size());
-	vector<tuple_E> Es;
-
-	std::vector<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t, int>> temp;
-	temp.reserve(HF.size() * 3);
-	HFE.resize(HF.size());
-	for (uint32_t f = 0; f < HF.size(); ++f) {
-		for (uint32_t e = 0; e < HF[f].size(); ++e) {
-			uint32_t v0 = HF[f][e], v1 = HF[f][(e + 1) % HF[f].size()];
-			if (v0 > v1) std::swap(v0, v1);
-			temp.push_back(std::make_tuple(v0, v1, f, e, Edge_tag::B));
-		}
-		std::vector<uint32_t> fes(HF[f].size());
-		HFE[f] = fes;
-	}
-	std::sort(temp.begin(), temp.end());
-	Es.reserve(temp.size() / 2);
-	int E_num = -1;
-	for (uint32_t i = 0; i < temp.size(); ++i) {
-		if (i == 0 || (i != 0 && (std::get<0>(temp[i]) != std::get<0>(temp[i - 1]) ||
-			std::get<1>(temp[i]) != std::get<1>(temp[i - 1])))) {
-			E_num++;
-			Es.push_back(std::make_tuple(std::get<0>(temp[i]), std::get<1>(temp[i]), true, 0, std::get<4>(temp[i]), E_num, -1, 0));
-		}
-		else if (i != 0 && (std::get<0>(temp[i]) == std::get<0>(temp[i - 1]) &&
-			std::get<1>(temp[i]) == std::get<1>(temp[i - 1])))
-			std::get<2>(Es[E_num]) = false;
-		HFE[std::get<2>(temp[i])][std::get<3>(temp[i])] = E_num;
-	}
-	vector<vector<uint32_t>> Efs(Es.size());
-	for (uint32_t i = 0; i < HFE.size(); i++)for (auto e : HFE[i])Efs[e].push_back(i);
-
-	uint32_t start_f = 0;
-	vector<bool> flag(HF.size(), true);
-	flag[start_f] = false;
-	std::queue<uint32_t> pf_temp; pf_temp.push(start_f);
-	while (!pf_temp.empty()) {
-		uint32_t fid = pf_temp.front(); pf_temp.pop();
-		for (auto eid : HFE[fid]) for (auto nfid : Efs[eid]) {
-			if (!flag[nfid]) continue;
-			uint32_t v0 = std::get<0>(Es[eid]), v1 = std::get<1>(Es[eid]);
-			int32_t v0_pos = std::find(HF[fid].begin(), HF[fid].end(), v0) - HF[fid].begin();
-			int32_t v1_pos = std::find(HF[fid].begin(), HF[fid].end(), v1) - HF[fid].begin();
-
-			if ((v0_pos + 1) % HF[fid].size() != v1_pos) swap(v0, v1);
-
-			int32_t v0_pos_ = std::find(HF[nfid].begin(), HF[nfid].end(), v0) - HF[nfid].begin();
-			int32_t v1_pos_ = std::find(HF[nfid].begin(), HF[nfid].end(), v1) - HF[nfid].begin();
-
-			if ((v0_pos_ + 1) % HF[nfid].size() == v1_pos_) std::reverse(HF[nfid].begin(), HF[nfid].end());
-
-			pf_temp.push(nfid); flag[nfid] = false;
-		}
-		if (pf_temp.empty()) {
-			bool found = false;
-			for (uint32_t i = 0; i < flag.size(); i++)if (flag[i]) {
-				start_f = i;
-				flag[start_f] = false; pf_temp.push(start_f);
-				found = true;
-			}
-			if (!found) break;
-		}
-	}
-
-	Float res = 0;
-	Vector3f ori; ori.setZero();
-	for (uint32_t i = 0; i < HF.size(); i++) {
-		auto &fvs = HF[i];
-		Vector3f center; center.setZero(); for (auto vid : fvs) center += HV.col(vid); center /= fvs.size();
-
-		for (uint32_t j = 0; j < fvs.size(); j++) {
-			Vector3f x = HV.col(fvs[j]) - ori, y = HV.col(fvs[(j + 1) % fvs.size()]) - ori, z = center - ori;
-			res += -((x[0] * y[1] * z[2] + x[1] * y[2] * z[0] + x[2] * y[0] * z[1]) - (x[2] * y[1] * z[0] + x[1] * y[0] * z[2] + x[0] * y[2] * z[1]));
-		}
-	}
-	if (res > 0) {
-		for (uint32_t i = 0; i < HF.size(); i++) std::reverse(HF[i].begin(), HF[i].end());
-	}
-}

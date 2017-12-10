@@ -1,130 +1,100 @@
 #include "common.h"
-#include "viewer.h"
-#include "batch.h"
-/* Force usage of discrete GPU on laptops */
-NANOGUI_FORCE_DISCRETE_GPU();
+#include "meshio.h"
+#include "hierarchy.h"
+#include "timer.h"
 
-int main(int argc, char **argv) {
-    std::vector<std::string> args;
-    bool fullscreen = false, help = false;
-    int nprocs = -1;
-    #if defined(__APPLE__)
-        bool launched_from_finder = false;
-    #endif
-
-		bool Batch_Process = false;
-		uint32_t  dim = 2;
-		char batchIutput[300], batchOutput[300];
-		Float scale = 3, tlen=1.0; uint32_t smooth_iter = 10;
-    try {
-        for (int i=1; i<argc; ++i) {
-            if (strcmp("--fullscreen", argv[i]) == 0 || strcmp("-F", argv[i]) == 0) {
-                fullscreen = true;
-            } else if (strcmp("--help", argv[i]) == 0 || strcmp("-h", argv[i]) == 0) {
-                help = true;
-            } else if (strcmp("--threads", argv[i]) == 0 || strcmp("-t", argv[i]) == 0) {
-                if (++i >= argc) {
-                    cerr << "Missing thread count!" << endl;
-                    return -1;
-                }
-                nprocs = str_to_uint32_t(argv[i]);
-#if defined(__APPLE__)
-            } else if (strncmp("-psn", argv[i], 4) == 0) {
-                launched_from_finder = true;
-#endif
-            }
-			else if (strcmp("-batch", argv[i]) == 0 || strcmp("-b", argv[i]) == 0) {
-				Batch_Process = true;
-			}
-			else if (strcmp("--dimension", argv[i]) == 0 || strcmp("-d", argv[i]) == 0) {
-				if (++i >= argc) {
-					cerr << "Missing tet-gen density argument!" << endl;
-					return -1;
-				}
-				dim = str_to_uint32_t(argv[i]);
-			}
-			else if (strcmp("--tlenratio", argv[i]) == 0 || strcmp("-tl", argv[i]) == 0) {
-				if (++i >= argc) {
-					cerr << "Missing tet-gen density argument!" << endl;
-					return -1;
-				}
-				tlen = str_to_float(argv[i]);
-			}
-			else if (strcmp("--smooth", argv[i]) == 0 || strcmp("-S", argv[i]) == 0) {
-				if (++i >= argc) {
-					cerr << "Missing smoothing iteration count argument!" << endl;
-					return -1;
-				}
-				smooth_iter = str_to_uint32_t(argv[i]);
-			}
-			else if (strcmp("--scale", argv[i]) == 0 || strcmp("-s", argv[i]) == 0) {
-				if (++i >= argc) {
-					cerr << "Missing scale argument!" << endl;
-					return -1;
-				}
-				scale = str_to_float(argv[i]);
-			}
-			else if (strcmp("--iutput", argv[i]) == 0 || strcmp("-i", argv[i]) == 0) {
-				if (++i >= argc) {
-					cerr << "Missing batch mode output file argument!" << endl;
-					return -1;
-				}
-				sprintf(batchIutput, "%s", argv[i]);
-			}
-			else if (strcmp("--output", argv[i]) == 0 || strcmp("-o", argv[i]) == 0) {
-				if (++i >= argc) {
-					cerr << "Missing batch mode output file argument!" << endl;
-					return -1;
-				}
-				sprintf(batchOutput, "%s", argv[i]);
-			}
-			else {
-                if (strncmp(argv[i], "-", 1) == 0) {
-                    cerr << "Invalid argument: \"" << argv[i] << "\"!" << endl;
-                    help = true;
-                }
-                args.push_back(argv[i]);
+template <typename DerivedW>
+bool writeDMAT(
+        const std::string file_name,
+        const Eigen::MatrixBase<DerivedW> & W,
+        const bool ascii) {
+    FILE * fp = fopen(file_name.c_str(),"wb");
+    if(fp == NULL)
+    {
+        fprintf(stderr,"IOError: writeDMAT() could not open %s...",file_name.c_str());
+        return false;
+    }
+    if(ascii)
+    {
+        // first line contains number of rows and number of columns
+        fprintf(fp,"%d %d\n",(int)W.cols(),(int)W.rows());
+        // Loop over columns slowly
+        for(int j = 0;j < W.cols();j++)
+        {
+            // loop over rows (down columns) quickly
+            for(int i = 0;i < W.rows();i++)
+            {
+                fprintf(fp,"%0.17lg\n",(double)W(i,j));
             }
         }
-    } catch (const std::exception &e) {
-        cout << "Error: " << e.what() << endl;
-        help = true;
+    }else
+    {
+        // write header for ascii
+        fprintf(fp,"0 0\n");
+        // first line contains number of rows and number of columns
+        fprintf(fp,"%d %d\n",(int)W.cols(),(int)W.rows());
+        // reader assumes the binary part is double precision
+        Eigen::MatrixXd Wd = W.template cast<double>();
+        fwrite(Wd.data(),sizeof(double),Wd.size(),fp);
+        //// Loop over columns slowly
+        //for(int j = 0;j < W.cols();j++)
+        //{
+        //  // loop over rows (down columns) quickly
+        //  for(int i = 0;i < W.rows();i++)
+        //  {
+        //    double d = (double)W(i,j);
+        //    fwrite(&d,sizeof(double),1,fp);
+        //  }
+        //}
     }
-	
-	nprocs = -1;
-    tbb::task_scheduler_init init(nprocs == -1 ? tbb::task_scheduler_init::automatic : nprocs);
+    fclose(fp);
+    return true;
+}
 
-	if (Batch_Process) {
-		batch_process(batchIutput, batchOutput, dim, tlen, scale, smooth_iter);
-		return EXIT_SUCCESS;
-	}
-	
-    try {
-        nanogui::init();
+void rosy_process(char *input, Float scale, int smooth_iter) {
 
-        #if defined(__APPLE__)
-            if (launched_from_finder)
-                nanogui::chdir_to_bundle_parent();
-        #endif
+    MultiResolutionHierarchy mRes;
+    Timer<> timer;
+    timer.beginStage("data pre-processing");
+    mRes.load(input);
 
-		std::string filename;
-        if (args.size() > 0)
-            filename = args[0];
-        nanogui::ref<Viewer> viewer = new Viewer(filename, fullscreen);
-        viewer->setVisible(true);
+    mRes.build();
 
-        nanogui::mainloop();
+    mRes.setScale(scale);
+    timer.endStage();
 
-        nanogui::shutdown();
-    } catch (const std::runtime_error &e) {
-        std::string error_msg = std::string("Caught a fatal error: ") + std::string(e.what());
-        #if defined(_WIN32)
-            MessageBoxA(nullptr, error_msg.c_str(), NULL, MB_ICONERROR | MB_OK);
-        #else
-            std::cerr << error_msg << endl;
-        #endif
-        return -1;
+    timer.beginStage("rosy optimization");
+
+    int mLevelIterations = 0;
+    int mMaxIterations = smooth_iter;
+    int mLevel = mRes.levels()-2;
+
+    while (true) {
+        mRes.smoothOrientationsTri(mLevel, true, true, true);
+        mLevelIterations++;
+
+        if (mLevelIterations >= mMaxIterations) {
+            mLevelIterations = 0;
+            if (mLevel == 0) {
+                break;
+            }
+
+            mLevel--;
+            mRes.prolongOrientations(mLevel);
+        }
     }
+    timer.endStage();
+    writeDMAT("output.dmat",mRes.mQ[0], true);
+}
 
-    return EXIT_SUCCESS;
+int main(int argc, char **argv) {
+	char batchInput[300] = "/Users/zhjiang/Workspace/robust_hex_dominant_meshing/Nefertiti.obj";
+	char batchOutput[300] = "output.obj";
+	Float scale = 3;
+    uint32_t smooth_iter = 10;
+    tbb::task_scheduler_init init(1);
+
+    rosy_process(batchInput, scale, smooth_iter);
+
+	return EXIT_SUCCESS;
 }

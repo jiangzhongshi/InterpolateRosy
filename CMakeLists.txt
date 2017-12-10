@@ -145,10 +145,8 @@ endif()
 
 add_library(robust_hex_dominant_meshing_lib
   src/meshio.cpp src/meshio.h
-  src/viewer.cpp src/viewer.h
   src/aabb.h
   src/adjacency.h
-  src/batch.h src/batch.cpp
   src/bvh.h src/bvh.cpp
   src/common.h
   src/dedge.h src/dedge.cpp
@@ -160,8 +158,6 @@ add_library(robust_hex_dominant_meshing_lib
   src/orient_triangle_mesh.cpp src/orient_triangle_mesh.h
   src/orientations.cpp src/orientations.h
   src/positions.cpp src/positions.h
-  src/optimizer.cpp src/optimizer.h
-  src/extract.cpp src/extract3D.cpp
   ext/rply/rply.c
   im_resources.cpp
 )
