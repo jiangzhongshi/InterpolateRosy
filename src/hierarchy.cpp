@@ -1,19 +1,146 @@
 #include "hierarchy.h"
-#include "meshio.h"
 #include "timer.h"
 #include "quat.h"
-#include "bvh.h"
-#include "orient_triangle_mesh.h"
-#include "dedge.h"
-#include "subdivide.h"
 #include "tri_tri_intersection.h"
+#include <numeric>
+#include "hierarchy.h"
+#include "quat.h"
+#include "timer.h"
+#include "orientations.h"
+#include <fstream>
+
+
+void load_obj(const std::string &filename, MatrixXu &F, MatrixXf &V) {
+	/// Vertex indices used by the OBJ format
+	struct obj_vertex {
+	  uint32_t p = (uint32_t)-1;
+	  uint32_t n = (uint32_t)-1;
+	  uint32_t uv = (uint32_t)-1;
+
+	  inline obj_vertex() { }
+
+	  inline obj_vertex(const std::string &string) {
+		  std::vector<std::string> tokens = str_tokenize(string, '/', true);
+
+		  if (tokens.size() < 1 || tokens.size() > 3)
+			  throw std::runtime_error("Invalid vertex data: \"" + string + "\"");
+
+		  p = str_to_uint32_t(tokens[0]);
+
+#if 0
+		  if (tokens.size() >= 2 && !tokens[1].empty())
+				uv = str_to_uint32_t(tokens[1]);
+
+			if (tokens.size() >= 3 && !tokens[2].empty())
+				n = str_to_uint32_t(tokens[2]);
+#endif
+	  }
+
+	  inline bool operator==(const obj_vertex &v) const {
+		  return v.p == p && v.n == n && v.uv == uv;
+	  }
+	};
+
+	/// Hash function for obj_vertex
+	struct obj_vertexHash : std::unary_function<obj_vertex, size_t> {
+	  std::size_t operator()(const obj_vertex &v) const {
+		  size_t hash = std::hash<uint32_t>()(v.p);
+		  hash = hash * 37 + std::hash<uint32_t>()(v.uv);
+		  hash = hash * 37 + std::hash<uint32_t>()(v.n);
+		  return hash;
+	  }
+	};
+
+	typedef std::unordered_map<obj_vertex, uint32_t, obj_vertexHash> VertexMap;
+
+	size_t last_slash_idx = filename.rfind('.');
+	if (filename.substr(last_slash_idx) != ".OBJ" && filename.substr(last_slash_idx) != ".obj")
+		throw std::runtime_error("Unable to open OBJ file \"" + filename + "\"!");
+
+	std::ifstream is(filename);
+	if (is.fail())
+		throw std::runtime_error("Unable to open OBJ file \"" + filename + "\"!");
+	cout << "Loading \"" << filename << "\" .. ";
+	cout.flush();
+	Timer<> timer;
+
+	std::vector<Vector3f>   positions;
+	//std::vector<Vector2f>   texcoords;
+	//std::vector<Vector3f>   normals;
+	std::vector<uint32_t>   indices;
+	std::vector<obj_vertex> vertices;
+	VertexMap vertexMap;
+
+	std::string line_str;
+	while (std::getline(is, line_str)) {
+		std::istringstream line(line_str);
+
+		std::string prefix;
+		line >> prefix;
+
+		if (prefix == "v") {
+			Vector3f p;
+			line >> p.x() >> p.y() >> p.z();
+			positions.push_back(p);
+		}
+		else if (prefix == "vt") {
+			/*
+			Vector2f tc;
+			line >> tc.x() >> tc.y();
+			texcoords.push_back(tc);
+			*/
+		}
+		else if (prefix == "vn") {
+			/*
+			Vector3f n;
+			line >> n.x() >> n.y() >> n.z();
+			normals.push_back(n);
+			*/
+		}
+		else if (prefix == "f") {
+			std::string v1, v2, v3, v4;
+			line >> v1 >> v2 >> v3 >> v4;
+			obj_vertex tri[6];
+			int nVertices = 3;
+
+			tri[0] = obj_vertex(v1);
+			tri[1] = obj_vertex(v2);
+			tri[2] = obj_vertex(v3);
+
+			if (!v4.empty()) {
+				/* This is a quad, split into two triangles */
+				tri[3] = obj_vertex(v4);
+				tri[4] = tri[0];
+				tri[5] = tri[2];
+				nVertices = 6;
+			}
+			/* Convert to an indexed vertex list */
+			for (int i = 0; i<nVertices; ++i) {
+				const obj_vertex &v = tri[i];
+				VertexMap::const_iterator it = vertexMap.find(v);
+				if (it == vertexMap.end()) {
+					vertexMap[v] = (uint32_t)vertices.size();
+					indices.push_back((uint32_t)vertices.size());
+					vertices.push_back(v);
+				}
+				else {
+					indices.push_back(it->second);
+				}
+			}
+		}
+	}
+	F.resize(3, indices.size() / 3);
+	memcpy(F.data(), indices.data(), sizeof(uint32_t)*indices.size());
+	V.resize(3, vertices.size());
+	for (uint32_t i = 0; i<vertices.size(); ++i)
+		V.col(i) = positions.at(vertices[i].p - 1);
+}
 
 MultiResolutionHierarchy::MultiResolutionHierarchy() {
     mV = { MatrixXf::Zero(3, 1) };
     mN = { MatrixXf::Zero(3, 1) };
     mO = { MatrixXf::Zero(3, 1) };
     mQ = { MatrixXf::Zero(4, 1) };
-    mBVH = nullptr;
 	ratio_scale = 3.0;
     splitting = triangles = false;
 }
@@ -28,9 +155,8 @@ bool MultiResolutionHierarchy::load(const Eigen::MatrixXf& V, const MatrixXu& F)
 			mV[0].rowwise().maxCoeff()
 	);
 
-	ms = compute_mesh_stats(mF, mV[0]);
 	diagonalLen = 3 * (mAABB.max - mAABB.min).norm() / 100;
-	ratio_scale = ms.mAverageEdgeLength * 3.5 / diagonalLen;
+	//ratio_scale = ms.mAverageEdgeLength * 3.5 / diagonalLen;
 
 	return true;
 }
@@ -55,69 +181,16 @@ bool MultiResolutionHierarchy::load(const std::string &filename) {
 		mV[0].rowwise().maxCoeff()
 	);
 
-	ms = compute_mesh_stats(mF, mV[0]);
 	diagonalLen = 3 * (mAABB.max - mAABB.min).norm() / 100;
-	ratio_scale = ms.mAverageEdgeLength * 3.5 / diagonalLen;
+	//ratio_scale = ms.mAverageEdgeLength * 3.5 / diagonalLen;
 
     return true;
 }
-MeshStats MultiResolutionHierarchy::compute_mesh_stats(const MatrixXu &F_, const MatrixXf &V_, bool deterministic)
-{
-	MeshStats stats;
-	cout << "Computing mesh statistics .. ";
-	cout.flush();
-	auto map = [&](const tbb::blocked_range<uint32_t> &range, MeshStats stats) -> MeshStats {
-		for (uint32_t f = range.begin(); f != range.end(); ++f) {
-			Vector3f v[3] = { V_.col(F_(0, f)), V_.col(F_(1, f)), V_.col(F_(2, f)) };
-			Vector3f face_center = Vector3f::Zero();
 
-			for (int i = 0; i<3; ++i) {
-				Float edge_length = (v[i] - v[i == 2 ? 0 : (i + 1)]).norm();
-				stats.mAverageEdgeLength += edge_length;
-				stats.mMaximumEdgeLength = std::max(stats.mMaximumEdgeLength, (double)edge_length);
-				stats.mAABB.expandBy(v[i]);
-				face_center += v[i];
-			}
-			face_center *= 1.0f / 3.0f;
-
-			Float face_area = 0.5f * (v[1] - v[0]).cross(v[2] - v[0]).norm();
-			stats.mSurfaceArea += face_area;
-			stats.mWeightedCenter += face_area * face_center;
-		}
-		return stats;
-	};
-
-	auto reduce = [](MeshStats s0, MeshStats s1) -> MeshStats {
-		MeshStats result;
-		result.mSurfaceArea = s0.mSurfaceArea + s1.mSurfaceArea;
-		result.mWeightedCenter = s0.mWeightedCenter + s1.mWeightedCenter;
-		result.mAverageEdgeLength =
-			s0.mAverageEdgeLength + s1.mAverageEdgeLength;
-		result.mMaximumEdgeLength =
-			std::max(s0.mMaximumEdgeLength, s1.mMaximumEdgeLength);
-		result.mAABB = AABB::merge(s0.mAABB, s1.mAABB);
-		return result;
-	};
-
-	tbb::blocked_range<uint32_t> range(0u, (uint32_t)F_.cols(), GRAIN_SIZE);
-
-	if (deterministic)
-		stats = tbb::parallel_deterministic_reduce(range, MeshStats(), map, reduce);
-	else
-		stats = tbb::parallel_reduce(range, MeshStats(), map, reduce);
-
-	stats.mAverageEdgeLength /= F_.cols() * 3;
-	stats.mWeightedCenter /= stats.mSurfaceArea;
-
-	return stats;
-}
 
 void MultiResolutionHierarchy::build() {
 	Timer<> timer;
 	mV.resize(1);
-
-	if (mBVH)
-		delete mBVH;
 
 	timer.beginStage("Computing face and vertex normals");
 	mN.resize(1);
@@ -384,10 +457,6 @@ void MultiResolutionHierarchy::build() {
 		}
 	mOrientationIterations = 0;
 
-    mBVH = new BVH(&mF, &mV[0], mAABB);
-	mBVH->build();
-	mScale = diagonalLen * ratio_scale;
-	mInvScale = 1.f / mScale;
 
 	sta.tN = mF.cols();
 	sta.tetN = mT.cols();
@@ -422,34 +491,105 @@ void MultiResolutionHierarchy::construct_tEs_tFEs(MatrixXu & F, std::vector<std:
 		mtFes[std::get<2>(temp[i])][std::get<3>(temp[i])] = E_num;
 	}
 }
-void MultiResolutionHierarchy::construct_tEs_tFEs(std::vector<std::vector<uint32_t>> &F, std::vector<std::vector<uint32_t>> &mtFes, std::vector<tuple_E> &mtEs) {
-	mtFes.clear(); mtEs.clear();
 
-	std::vector<std::tuple<uint32_t, uint32_t, uint32_t, uint32_t, int>> temp;
-	temp.reserve(F.size() * 3);
-	mtFes.resize(F.size());
-	for (uint32_t f = 0; f < F.size(); ++f) {
-		for (uint32_t e = 0; e < F[f].size(); ++e) {
-			uint32_t v0 = F[f][e], v1 = F[f][(e+1)%F[f].size()];
-			if (v0 > v1) std::swap(v0, v1);
-			temp.push_back(std::make_tuple(v0, v1, f, e, Edge_tag::B));
+
+void MultiResolutionHierarchy::smoothOrientationsTri(uint32_t l, bool alignment, bool randomization, bool extrinsic) {
+	const MatrixXf &N = mN[l];
+	const SMatrix &L = mL[l];
+	MatrixXf &Q = mQ[l];
+
+	Timer<> timer;
+	double error = 0;
+	int nLinks = 0;
+	MatrixXf Q_new(Q.rows(), Q.cols());
+
+#if PARALLEL
+	tbb::spin_mutex mutex;
+	tbb::parallel_for(
+        tbb::blocked_range<uint32_t>(0u, (uint32_t) L.outerSize(), GRAIN_SIZE),
+        [&](const tbb::blocked_range<uint32_t> &range) {
+            std::vector<std::pair<uint32_t, Float>> neighbors;
+            double errorLocal = 0;
+            int nLinksLocal = 0;
+            for (uint32_t k = range.begin(); k != range.end(); ++k) {
+#else
+	std::vector<std::pair<uint32_t, Float>> neighbors;
+	double errorLocal = 0;
+	int nLinksLocal = 0;
+	for (uint32_t k = 0; k < (uint32_t) L.outerSize(); k++) {
+#endif
+		SMatrix::InnerIterator it(L, k);
+
+		uint32_t i = it.row();
+		Vector3f q_i = Vector3f::Zero();
+		Vector3f n_i = N.col(i);
+
+		if (nV_boundary_flag[l][i]) {
+			Q_new.col(i) = Q.col(i);
+			continue;
 		}
-		std::vector<uint32_t> fes(F[f].size());
-		mtFes[f] = fes;
+
+		neighbors.clear();
+		for (; it; ++it) {
+			uint32_t j = it.col();
+			if (i == j)
+				continue;
+			neighbors.push_back(std::make_pair(j, it.value()));
+		}
+
+		if (randomization && neighbors.size() > 0)
+			pcg32(mOrientationIterations, k)
+					.shuffle(neighbors.begin(), neighbors.end());
+
+		for (auto n : neighbors) {
+			uint32_t j = n.first;
+			Float value = n.second;
+			Float dp;
+
+			Vector3f q_j = Q.col(j), n_j = N.col(j);
+			if (extrinsic) {
+				q_j = applyRotationExtrinsic((q_i == Vector3f::Zero()) ? Q.col(i) : q_i, n_i, q_j, n_j);
+				dp = Q.col(i).dot(applyRotation(Q.col(i), N.col(i), Q.col(j), N.col(j)));
+			} else {
+				q_j = applyRotation((q_i == Vector3f::Zero()) ? Q.col(i) : q_i, n_i, q_j, n_j);
+				dp = Q.col(i).dot(applyRotation(Q.col(i), N.col(i), Q.col(j), N.col(j)));
+			}
+
+			errorLocal += std::abs(std::acos(std::min(dp, (Float) 1)));
+			++nLinksLocal;
+
+			q_i += q_j * value;
+		}
+
+		if (q_i != Vector3f::Zero())
+			Q_new.col(i) = (q_i - n_i.dot(q_i) * n_i).normalized();
 	}
-	std::sort(temp.begin(), temp.end());
-	mtEs.reserve(temp.size() / 2);
-	int E_num = -1;
-	for (uint32_t i = 0; i < temp.size(); ++i) {
-		if (i == 0 || (i != 0 && (std::get<0>(temp[i]) != std::get<0>(temp[i - 1]) || std::get<1>(temp[i]) != std::get<1>(temp[i - 1])))) {
-			E_num++;
-			mtEs.push_back(std::make_tuple(std::get<0>(temp[i]), std::get<1>(temp[i]), true, 0, std::get<4>(temp[i]), E_num, -1, 0));
-		}
-		else if (i != 0 && (std::get<0>(temp[i]) == std::get<0>(temp[i - 1]) &&
-			std::get<1>(temp[i]) == std::get<1>(temp[i - 1])))
-			std::get<2>(mtEs[E_num]) = false;
+	error += errorLocal;
+	nLinks += nLinksLocal;
+#if PARALLEL
+	tbb::spin_mutex::scoped_lock guard(mutex);
+	}
+    );
+#else
+#endif
+	mOrientationIterations++;
+	Q = std::move(Q_new);
+}
 
-		mtFes[std::get<2>(temp[i])][std::get<3>(temp[i])] = E_num;
+void MultiResolutionHierarchy::prolongOrientations(int level) {
+	const SMatrix &P = mP[level];
+	const MatrixXf &N = mN[level];
+	for (int k = 0; k < P.outerSize(); ++k) {
+		SMatrix::InnerIterator it(P, k);
+		for (; it; ++it) {
+			Quaternion q_j = mQ[level + 1].col(it.col());
+			Vector3f n_i = N.col(it.row());
+			if (n_i != Vector3f::Zero()) {
+				Float magnitude = q_j.norm();
+				q_j = Quaternion(q_j / magnitude).align(n_i) * magnitude;
+			}
+			mQ[level].col(it.row()) = q_j;
+		}
 	}
 }
 

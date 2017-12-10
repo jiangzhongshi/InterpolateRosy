@@ -3,8 +3,6 @@
 #include "common.h"
 #include "aabb.h"
 #include "adjacency.h"
-#include "meshio.h"
-#include "tetgen.h"
 #include <unordered_map>
 #include <algorithm> 
 #include <queue>
@@ -12,7 +10,6 @@
 #include <set>
 
 using namespace std;
-class BVH;
 
 struct MeshStats {
 	AABB mAABB;
@@ -34,16 +31,12 @@ public:
 
     bool load(const std::string &filename);
 	bool load(const Eigen::MatrixXf& V, const MatrixXu& F);
-	MeshStats compute_mesh_stats(const MatrixXu &F_, const MatrixXf &V_, bool deterministic = false);
 
-	//protected:
+  //protected:
 	void build();
 	void construct_tEs_tFEs(MatrixXu & F, std::vector<std::vector<uint32_t>> &mtFes, std::vector<tuple_E> &mtEs);
-	void construct_tEs_tFEs(std::vector<std::vector<uint32_t>> &F, std::vector<std::vector<uint32_t>> &mtFes, std::vector<tuple_E> &mtEs);
 
-    bool tetMesh() const { return false; }
-
-    MatrixXf &V(uint32_t i = 0) { return mV[i]; }
+  MatrixXf &V(uint32_t i = 0) { return mV[i]; }
     const MatrixXf &V(uint32_t i = 0) const { return mV[i]; }
 
     MatrixXf &N(uint32_t i = 0) { return mN[i]; }
@@ -67,25 +60,16 @@ public:
     SMatrix &L(uint32_t i = 0) { return mL[i]; }
     const SMatrix &L(uint32_t i) const { return mL[i]; }
 
-    const BVH *bvh() const { return mBVH; }
-
     void smoothOrientationsTri(uint32_t l, bool alignment, bool randomization, bool extrinsic);
 
 	void prolongOrientations(int level);
 
-    bool recursive_ring(vector<uint32_t> &rvs, vector<uint32_t> &pvs, vector<uint32_t> &pes, uint32_t v0, uint32_t ve[2]);
-    int32_t share_the_same_fs(vector<uint32_t> &es, const uint32_t eid);
-    Float compute_cost_face3D(vector<uint32_t> &vs, uint32_t rv, bool single);
-
-	void tagging_singularities_T_nodes(MatrixXf &V_tagging, vector<tuple_E> &E_tagging, vector<vector<uint32_t>> &F_tagging);
-
-    AABB aabb() const { return mAABB; };;
+  AABB aabb() const { return mAABB; };;
 
     Float scale() const { return ratio_scale; }
 	void setScale(Float scale) { 
 		ratio_scale = scale; 
 		mScale = diagonalLen * scale; 
-		mInvScale = 1.f / mScale;
     }
 
 
@@ -116,11 +100,8 @@ public:
 	Float diagonalLen;
 	Float ratio_scale;
 
-	BVH *mBVH;
-
 public:
     statistics sta;
-	MeshStats ms;
 	bool triangles, splitting;
 
 	//for t-mesh vertex tag

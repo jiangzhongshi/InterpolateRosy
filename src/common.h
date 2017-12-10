@@ -13,7 +13,6 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 #include <Eigen/Geometry>
-#include <tbb/tbb.h>
 #include <iostream>
 #include <iomanip>
 #include <chrono>

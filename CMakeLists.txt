@@ -70,25 +70,6 @@ elseif (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "
   endif()
 endif()
 
-# Build NanoGUI
-set(NANOGUI_BUILD_EXAMPLE OFF CACHE BOOL " " FORCE)
-set(NANOGUI_BUILD_SHARED  OFF CACHE BOOL " " FORCE)
-set(NANOGUI_BUILD_PYTHON  OFF CACHE BOOL " " FORCE)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/ext/nanoguig ext_build/nanogui)
-set_property(TARGET nanogui glfw glfw_objects bin2c PROPERTY FOLDER "dependencies")
-
-# Build TBB
-set(TBB_BUILD_STATIC ON CACHE BOOL " " FORCE)
-set(TBB_BUILD_SHARED OFF CACHE BOOL " " FORCE)
-set(TBB_BUILD_TBBMALLOC OFF CACHE BOOL " " FORCE)
-set(TBB_BUILD_TBBMALLOC_PROXY OFF CACHE BOOL " " FORCE)
-set(TBB_BUILD_TESTS OFF CACHE BOOL " " FORCE)
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/ext/tbb ext_build/tbb)
-set_property(TARGET tbb_static tbb_def_files PROPERTY FOLDER "dependencies")
-
-#Build Tetgen
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/ext/tetgen ext_build/tetgen)
-set_property(TARGET tet PROPERTY FOLDER "dependencies")
 
 # Header file directories of dependency libraries
 include_directories(
@@ -98,41 +79,18 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/nanoguig/ext/glfw/include
   # GLEW
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/nanoguig/ext/glew/include
-  # NanoVG
-  ${CMAKE_CURRENT_SOURCE_DIR}/ext/nanoguig/ext/nanovg/src
-  # NanoGUI
-  ${CMAKE_CURRENT_SOURCE_DIR}/ext/nanoguig/include
-  # Intel Thread Building Blocks
-  ${CMAKE_CURRENT_SOURCE_DIR}/ext/tbb/include
   # Pseudorandom number generator
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/pcg32
   # RPLY mesh I/O library
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/rply
-  # Tetgen
-  ${CMAKE_CURRENT_SOURCE_DIR}/ext/tetgen
+  # pybind11
+  #${CMAKE_CURRENT_SOURCE_DIR}/ext/pybind11/include
   # Resource file
   ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-# Run bin2c on resource files
-set(PNG_FILES
-  ${CMAKE_CURRENT_SOURCE_DIR}/resources/loadmesh.png
-)
-
-file(GLOB FRAG_FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/*.frag")
-file(GLOB VERT_FILES "${CMAKE_CURRENT_SOURCE_DIR}/resources/*.vert")
-file(GLOB GEO_FILES  "${CMAKE_CURRENT_SOURCE_DIR}/resources/*.geo")
-set(IM_RESOURCES ${PNG_FILES} ${FRAG_FILES} ${VERT_FILES} ${GEO_FILES})
-
-add_custom_command(
-  OUTPUT im_resources.cpp
-  COMMAND bin2c ARGS im_resources.cpp im_resources.h ${IM_RESOURCES}
-  DEPENDS bin2c ${IM_RESOURCES}
-  COMMENT "Running bin2c"
-  PRE_BUILD VERBATIM)
 
 add_definitions(-DSINGLE_PRECISION)
-add_definitions(-DTETLIBRARY)
 #add_definitions(-DT_VTAG)
 
 # Resource file (icons etc.)
@@ -144,50 +102,56 @@ elseif(WIN32)
 endif()
 
 add_library(robust_hex_dominant_meshing_lib
-  src/meshio.cpp src/meshio.h
-  src/aabb.h
+    src/aabb.h
   src/adjacency.h
-  src/bvh.h src/bvh.cpp
-  src/common.h
-  src/dedge.h src/dedge.cpp
-  src/lock.h
-  src/quat.h
-  src/subdivide.h src/subdivide.cpp
+    src/common.h
+    src/quat.h
   src/timer.h
   src/hierarchy.cpp src/hierarchy.h
-  src/orient_triangle_mesh.cpp src/orient_triangle_mesh.h
-  src/orientations.cpp src/orientations.h
-  src/positions.cpp src/positions.h
-  ext/rply/rply.c
-  im_resources.cpp
+    src/orientations.h
+    ext/rply/rply.c
 )
+
 
 add_executable(robust_hex_dominant_meshing MACOSX_BUNDLE
-  src/main.cpp
+src/main.cpp
 )
 
-target_link_libraries(robust_hex_dominant_meshing robust_hex_dominant_meshing_lib tbb_static nanogui ${NANOGUI_EXTRA_LIBS} tet)
-
-set_target_properties(robust_hex_dominant_meshing PROPERTIES OUTPUT_NAME "robust_hex_dominant_meshing")
+target_link_libraries(robust_hex_dominant_meshing robust_hex_dominant_meshing_lib)
 
 if (WIN32)
-  # Quench some warnings on MSVC
-  if (MSVC)
-    set_source_files_properties(ext/rply/rply.c PROPERTIES COMPILE_FLAGS "/wd4127")
-  endif()
+# Quench some warnings on MSVC
+if (MSVC)
+  set_source_files_properties(ext/rply/rply.c PROPERTIES COMPILE_FLAGS "/wd4127")
+endif()
 elseif (APPLE)
-  # Build an application bundle on OSX
-  set_target_properties(robust_hex_dominant_meshing PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "robust_hex_dominant_meshing")
-  set_target_properties(robust_hex_dominant_meshing PROPERTIES MACOSX_BUNDLE_BUNDLE_GUI_IDENTIFIER "com.im.robust_hex_dominant_meshing")
-  set_target_properties(robust_hex_dominant_meshing PROPERTIES MACOSX_BUNDLE_ICON_FILE im.icns)
-  set_target_properties(robust_hex_dominant_meshing PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/resources/MacOSXBundleInfo.plist.in)
-  set_source_files_properties(resources/im.icns PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+# Build an application bundle on OSX
+set_target_properties(robust_hex_dominant_meshing PROPERTIES MACOSX_BUNDLE_BUNDLE_NAME "robust_hex_dominant_meshing")
+set_target_properties(robust_hex_dominant_meshing PROPERTIES MACOSX_BUNDLE_BUNDLE_GUI_IDENTIFIER "com.im.robust_hex_dominant_meshing")
+set_target_properties(robust_hex_dominant_meshing PROPERTIES MACOSX_BUNDLE_ICON_FILE im.icns)
+set_target_properties(robust_hex_dominant_meshing PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRENT_SOURCE_DIR}/resources/MacOSXBundleInfo.plist.in)
+set_source_files_properties(resources/im.icns PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 else()
-  # Insulate from a few types of ABI changes by statically linking against libgcc and libstdc++
-  set_target_properties(robust_hex_dominant_meshing PROPERTIES LINK_FLAGS "-static-libgcc")
-  #set_target_properties(robust_hex_dominant_meshing PROPERTIES LINK_FLAGS "-static-libgcc -static-libstdc++")
+# Insulate from a few types of ABI changes by statically linking against libgcc and libstdc++
+set_target_properties(robust_hex_dominant_meshing PROPERTIES LINK_FLAGS "-static-libgcc")
+#set_target_properties(robust_hex_dominant_meshing PROPERTIES LINK_FLAGS "-static-libgcc -static-libstdc++")
 endif()
 
 if (UNIX AND NOT ${U_CMAKE_BUILD_TYPE} MATCHES DEBUG)
-  add_custom_command(TARGET robust_hex_dominant_meshing POST_BUILD COMMAND strip $<TARGET_FILE:robust_hex_dominant_meshing>)
+add_custom_command(TARGET robust_hex_dominant_meshing POST_BUILD COMMAND strip $<TARGET_FILE:robust_hex_dominant_meshing>)
 endif()
+
+#find_package(PythonInterp REQUIRED)
+#set(Python_ADDITIONAL_VERSIONS 3.4 3.5 3.6)
+#find_package(PythonLibs REQUIRED)
+#find_package(PythonInterp REQUIRED)
+#include_directories(${PYTHON_INCLUDE_DIR} include)
+#
+#
+#set(PYBIND11_DIR ext/pybind11 CACHE PATH "Path to pybind11")
+#add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/ext/pybind11/ pybind11)
+#
+
+#add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/ext/pybind11)
+#pybind11_add_module(rosy src/main.cpp)
+#target_link_libraries(rosy robust_hex_dominant_meshing_lib ${PYTHON_LIBRARIES})

@@ -1,7 +1,20 @@
 #include "common.h"
-#include "meshio.h"
 #include "hierarchy.h"
 #include "timer.h"
+//
+//#include <pybind11/pybind11.h>
+//
+//
+//int add(int i, int j) {
+//    return i + j;
+//}
+//
+//PYBIND11_MODULE(example, m) {
+//    m.doc() = "pybind11 example plugin"; // optional module docstring
+//
+//    m.def("add", &add, "A function which adds two numbers");
+//}
+
 
 template <typename DerivedW>
 bool writeDMAT(
@@ -88,13 +101,12 @@ void rosy_process(char *input, Float scale, int smooth_iter) {
 }
 
 int main(int argc, char **argv) {
-	char batchInput[300] = "/Users/zhjiang/Workspace/robust_hex_dominant_meshing/Nefertiti.obj";
-	char batchOutput[300] = "output.obj";
+	// char batchInput[300] = argv[1];
+	char batchOutput[300] = " ";
 	Float scale = 3;
     uint32_t smooth_iter = 10;
-    tbb::task_scheduler_init init(1);
 
-    rosy_process(batchInput, scale, smooth_iter);
+    rosy_process(argv[1], scale, smooth_iter);
 
 	return EXIT_SUCCESS;
 }
