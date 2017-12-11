@@ -59,6 +59,8 @@ bool writeDMAT(
 
 MatrixXf rosy_process(const MatrixXf &V,
                       const MatrixXu &F,
+                      const Eigen::VectorXi &b,
+                      const MatrixXf &bc,
                       Float scale,
                       int smooth_iter) {
 
@@ -67,7 +69,7 @@ MatrixXf rosy_process(const MatrixXf &V,
     timer.beginStage("data pre-processing");
     mRes.load(V,F);
 
-    mRes.build();
+    mRes.build(b,bc);
 
     mRes.setScale(scale);
     timer.endStage();
@@ -94,7 +96,6 @@ MatrixXf rosy_process(const MatrixXf &V,
     }
     timer.endStage();
     return mRes.mQ[0];
-    // writeDMAT("output.dmat",mRes.mQ[0], true);
 }
 
 int main(int argc, char **argv) {
@@ -113,7 +114,8 @@ PYBIND11_MODULE(rosy, m) {
     m.doc() = R"(as a test)";
 
     m.def("add_any", [](py::EigenDRef<Eigen::MatrixXd> x, int r, int c, double v) { x(r,c) += v; });
-    m.def("smooth_field", [](const MatrixXf &V, const MatrixXu &F, Float s, int iter){
-        return rosy_process(V,F,s, iter);
+    m.def("smooth_field", [](const MatrixXf &V, const MatrixXu &F, const Eigen::MatrixXi&b, 
+                                const MatrixXf &bc, Float s, int iter){
+        return rosy_process(V,F,b,bc, s,iter);
     });
 }

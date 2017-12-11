@@ -188,7 +188,8 @@ bool MultiResolutionHierarchy::load(const std::string &filename) {
 }
 
 
-void MultiResolutionHierarchy::build() {
+void MultiResolutionHierarchy::build(const Eigen::VectorXi &b,
+                      const MatrixXf &bc) {
 	Timer<> timer;
 	mV.resize(1);
 
@@ -243,6 +244,11 @@ void MultiResolutionHierarchy::build() {
 			if (std::get<2>(nEs[i])) {
 				nV_boundary_flag[0][v0] = nV_boundary_flag[0][v1] = true;
 			}
+		}
+
+		// boundary b
+		for(int i=0; i < b.size(); i++) {
+			nV_boundary_flag[0][i] = true;
 		}
 
 		std::vector<std::pair<uint32_t, uint32_t>> adj;
@@ -417,23 +423,24 @@ void MultiResolutionHierarchy::build() {
 					}
 
 					auto newdir = direct0;
-//					if (std::abs(direct0.dot(direct1)) < 0.5)
+					if (std::abs(direct0.dot(direct1)) < 0.5 || (direct0 + direct1).norm() < 0.01)
 						newdir = direct0;
-//					else
-//						newdir = (direct0 + direct1).normalized();
-//					if(newdir.hasNaN()) {
-//						std::cout<<newdir<<std::endl;
-//						std::cout<<"La";
-//					}
-                    mQ[i].col(j) = newdir;
-					continue;
+					else
+						newdir = (direct0 + direct1).normalized();
+					mQ[i].col(j) = newdir;
+				} else {
+					Vector3f n = mN[i].col(j), v = mV[i].col(j);
+					Vector3f s, t;
+					coordinate_system(n, s, t);
+					float angle = rng.nextFloat() * 2 * M_PI;
+					mQ[i].col(j) = s * std::cos(angle) + t * std::sin(angle);
 				}
+			}
 
-				Vector3f n = mN[i].col(j), v = mV[i].col(j);
-				Vector3f s, t;
-				coordinate_system(n, s, t);
-				float angle = rng.nextFloat() * 2 * M_PI;
-				mQ[i].col(j) = s * std::cos(angle) + t * std::sin(angle);
+			if(i == 0) { // paint prescribed bc
+				for (int ii=0; ii < b.size(); ii++) {
+					mQ[0].col(b(ii)) = bc.row(ii);
+				}
 			}
 
 
