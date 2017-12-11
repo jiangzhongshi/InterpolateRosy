@@ -150,9 +150,11 @@ bool MultiResolutionHierarchy::load(const MatrixXf& V, const MatrixXu& F) {
 	mV[0] = V;
 	mF = F;
 
+	auto rhs = mV[0].rowwise().minCoeff();
+	Vector3f tempmin = rhs;
+	Vector3f tempmmax = mV[0].rowwise().maxCoeff();
 	mAABB = AABB(
-			mV[0].rowwise().minCoeff(),
-			mV[0].rowwise().maxCoeff()
+        tempmin,tempmmax
 	);
 
 	diagonalLen = 3 * (mAABB.max - mAABB.min).norm() / 100;
@@ -244,11 +246,6 @@ void MultiResolutionHierarchy::build(const Eigen::VectorXi &b,
 			if (std::get<2>(nEs[i])) {
 				nV_boundary_flag[0][v0] = nV_boundary_flag[0][v1] = true;
 			}
-		}
-
-		// boundary b
-		for(int i=0; i < b.size(); i++) {
-			nV_boundary_flag[0][i] = true;
 		}
 
 		std::vector<std::pair<uint32_t, uint32_t>> adj;
@@ -438,7 +435,9 @@ void MultiResolutionHierarchy::build(const Eigen::VectorXi &b,
 			}
 
 			if(i == 0) { // paint prescribed bc
+				// boundary b
 				for (int ii=0; ii < b.size(); ii++) {
+					nV_boundary_flag[0][b(ii)] = true;
 					mQ[0].col(b(ii)) = bc.row(ii);
 				}
 			}
@@ -589,13 +588,10 @@ void MultiResolutionHierarchy::prolongOrientations(int level) {
 	for (int k = 0; k < P.outerSize(); ++k) {
 		SMatrix::InnerIterator it(P, k);
 		for (; it; ++it) {
-			Quaternion q_j = mQ[level + 1].col(it.col());
+			if (nV_boundary_flag[level][it.row()]) continue;
+			Vector3f q_j = mQ[level + 1].col(it.col());
 			Vector3f n_i = N.col(it.row());
-			if (n_i != Vector3f::Zero()) {
-				Float magnitude = q_j.norm();
-				q_j = Quaternion(q_j / magnitude).align(n_i) * magnitude;
-			}
-			mQ[level].col(it.row()) = q_j;
+			mQ[level].col(it.row()) = q_j - n_i * n_i.dot(q_j);
 		}
 	}
 }

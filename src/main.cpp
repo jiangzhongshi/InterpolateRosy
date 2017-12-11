@@ -114,7 +114,7 @@ PYBIND11_MODULE(rosy, m) {
     m.doc() = R"(as a test)";
 
     m.def("add_any", [](py::EigenDRef<Eigen::MatrixXd> x, int r, int c, double v) { x(r,c) += v; });
-    m.def("smooth_field", [](const MatrixXf &V, const MatrixXu &F, const Eigen::MatrixXi&b, 
+    m.def("smooth_field", [](const MatrixXf &V, const MatrixXu &F, const Eigen::VectorXi&b, 
                                 const MatrixXf &bc, Float s, int iter){
         return rosy_process(V,F,b,bc, s,iter);
     });
