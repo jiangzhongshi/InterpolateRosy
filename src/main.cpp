@@ -1,19 +1,12 @@
 #include "common.h"
 #include "hierarchy.h"
 #include "timer.h"
-//
-//#include <pybind11/pybind11.h>
-//
-//
-//int add(int i, int j) {
-//    return i + j;
-//}
-//
-//PYBIND11_MODULE(example, m) {
-//    m.doc() = "pybind11 example plugin"; // optional module docstring
-//
-//    m.def("add", &add, "A function which adds two numbers");
-//}
+
+#include <pybind11/pybind11.h>
+#include <pybind11/eigen.h>
+#include <pybind11/stl.h>
+
+using MatrixXdR = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
 
 template <typename DerivedW>
@@ -64,12 +57,15 @@ bool writeDMAT(
     return true;
 }
 
-void rosy_process(char *input, Float scale, int smooth_iter) {
+MatrixXf rosy_process(const MatrixXf &V,
+                      const MatrixXu &F,
+                      Float scale,
+                      int smooth_iter) {
 
     MultiResolutionHierarchy mRes;
     Timer<> timer;
     timer.beginStage("data pre-processing");
-    mRes.load(input);
+    mRes.load(V,F);
 
     mRes.build();
 
@@ -97,7 +93,8 @@ void rosy_process(char *input, Float scale, int smooth_iter) {
         }
     }
     timer.endStage();
-    writeDMAT("output.dmat",mRes.mQ[0], true);
+    return mRes.mQ[0];
+    // writeDMAT("output.dmat",mRes.mQ[0], true);
 }
 
 int main(int argc, char **argv) {
@@ -106,7 +103,17 @@ int main(int argc, char **argv) {
 	Float scale = 3;
     uint32_t smooth_iter = 10;
 
-    rosy_process(argv[1], scale, smooth_iter);
+    //rosy_process(argv[1], scale, smooth_iter);
 
 	return EXIT_SUCCESS;
+}
+
+namespace py = pybind11;
+PYBIND11_MODULE(rosy, m) {
+    m.doc() = R"(as a test)";
+
+    m.def("add_any", [](py::EigenDRef<Eigen::MatrixXd> x, int r, int c, double v) { x(r,c) += v; });
+    m.def("smooth_field", [](const MatrixXf &V, const MatrixXu &F, Float s, int iter){
+        return rosy_process(V,F,s, iter);
+    });
 }

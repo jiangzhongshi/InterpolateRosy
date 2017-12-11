@@ -145,7 +145,7 @@ MultiResolutionHierarchy::MultiResolutionHierarchy() {
     splitting = triangles = false;
 }
 
-bool MultiResolutionHierarchy::load(const Eigen::MatrixXf& V, const MatrixXu& F) {
+bool MultiResolutionHierarchy::load(const MatrixXf& V, const MatrixXu& F) {
 	mV.resize(1);
 	mV[0] = V;
 	mF = F;

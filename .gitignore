@@ -23,3 +23,5 @@ im_resources.cpp
 cmake-build-debug/
 .idea/
 .ipynb_checkpoints/
+*.egg-info/
+*.so

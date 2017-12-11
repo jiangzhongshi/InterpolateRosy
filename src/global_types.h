@@ -16,10 +16,8 @@ typedef double Float;
 #define Boundary_RegularE 2
 
 #define Precision 1.e-7
-#define Precision_Pro 1.0e-5
 #define Jacobian_Bound 1.0e-3
 
-#define PAI 3.1415926
 
 
 enum Feature_V_Type {

@@ -30,7 +30,7 @@ public:
     MultiResolutionHierarchy();
 
     bool load(const std::string &filename);
-	bool load(const Eigen::MatrixXf& V, const MatrixXu& F);
+	bool load(const MatrixXf& V, const MatrixXu& F);
 
   //protected:
 	void build();
