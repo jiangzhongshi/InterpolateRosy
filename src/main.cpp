@@ -70,6 +70,7 @@ MatrixXf rosy_process(const MatrixXf &V,
     mRes.load(V,F);
 
     mRes.build(b,bc);
+    assert(!mRes.mQ[0].hasNaN());
 
     mRes.setScale(scale);
     timer.endStage();

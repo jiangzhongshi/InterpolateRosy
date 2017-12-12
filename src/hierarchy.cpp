@@ -208,21 +208,30 @@ void MultiResolutionHierarchy::build(const Eigen::VectorXi &b,
 		uint32_t i0 = mF(0, i), i1 = mF(1, i), i2 = mF(2, i);
 		Vector3f v0 = mV[0].col(i0), v1 = mV[0].col(i1), v2 = mV[0].col(i2);
 		Vector3f n = (v1 - v0).cross(v2 - v0).normalized();
+		assert(n.norm() != 0);
 		mNF.col(i) = n;
 		mCF.col(i) += (v0 + v1 + v2) / 3;
 		mN[0].col(i0) += n; mN[0].col(i1) += n; mN[0].col(i2) += n;
 		count[i0]++; count[i1]++; count[i2]++;
 	}
+	
+	for (uint32_t i = 0; i<mN[0].cols(); ++i) {
+		assert(mN[0].col(i) !=  Vector3f::Zero());
+	}
 
 	for (uint32_t i = 0; i<mN[0].cols(); ++i) {
 		if (mN[0].col(i) != Vector3f::Zero()) {
-			Vector3f d1 = mN[0].col(i) / count[i],
-				d2 = mN[0].col(i).normalized();
+			Vector3f d2 = mN[0].col(i).normalized();
 			mN[0].col(i) = d2;
 			if (d2 != Vector3f::Zero())
 				mC[0].col(i) = mV[0].col(i);
 		}
 	}
+
+	for (uint32_t i = 0; i<mN[0].cols(); ++i) {
+		assert(mN[0].col(i) !=  Vector3f::Zero());
+	}
+	
 
 	vnfs.clear();
 	vnfs.resize(mV[0].cols());
@@ -424,6 +433,7 @@ void MultiResolutionHierarchy::build(const Eigen::VectorXi &b,
 						newdir = direct0;
 					else
 						newdir = (direct0 + direct1).normalized();
+					assert(!newdir.hasNaN());
 					mQ[i].col(j) = newdir;
 				} else {
 					Vector3f n = mN[i].col(j), v = mV[i].col(j);
@@ -431,6 +441,7 @@ void MultiResolutionHierarchy::build(const Eigen::VectorXi &b,
 					coordinate_system(n, s, t);
 					float angle = rng.nextFloat() * 2 * M_PI;
 					mQ[i].col(j) = s * std::cos(angle) + t * std::sin(angle);
+					assert(!mQ[i].col(j).hasNaN());
 				}
 			}
 
