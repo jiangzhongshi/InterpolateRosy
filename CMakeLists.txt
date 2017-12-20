@@ -8,7 +8,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR} )
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR} )
 else()
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O2") #### Libigl requires a modern C++ compiler that supports c++11
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "../" )
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "./" )
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-deprecated-declarations -Wno-unused-parameter -Wno-deprecated-register -Wno-return-type-c-linkage")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations -Wno-unused-parameter -Wno-deprecated-register -Wno-return-type-c-linkage")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wall -O0 -g")
@@ -66,6 +66,8 @@ include_directories(
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/nanoguig/ext/eigen
   # Pseudorandom number generator
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/pcg32
+  # libIGL
+  $ENV{LIBIGL_INCLUDE_DIR}
   # pybind11
   # ${CMAKE_CURRENT_SOURCE_DIR}/ext/pybind11/include
   # python 
@@ -85,9 +87,6 @@ include_directories(
 #   src/orientations.h
 # )
 
-# add_executable(robust_hex_dominant_meshing 
-#   src/main.cpp
-# )
 
 # target_link_libraries(robust_hex_dominant_meshing robust_hex_dominant_meshing_lib)
 
@@ -105,6 +104,15 @@ include_directories(
 # endif()
 
 
-#include_directories(${PYTHON_INCLUDE_DIR} include)
-pybind11_add_module(rosy src/main.cpp src/hierarchy.cpp)
+include_directories(${PYTHON_INCLUDE_DIR} include)
+pybind11_add_module(rosy 
+    src/bind.cpp 
+    src/main.cpp 
+    src/hierarchy.cpp)
 #target_link_libraries(rosy ${PYTHON_LIBRARIES})
+target_compile_definitions(rosy PRIVATE PYBIND)
+
+add_executable(cmdln
+   src/main.cpp
+   src/hierarchy.cpp
+)

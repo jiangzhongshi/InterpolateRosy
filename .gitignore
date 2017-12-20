@@ -25,3 +25,5 @@ cmake-build-debug/
 .ipynb_checkpoints/
 *.egg-info/
 *.so
+
+test/
