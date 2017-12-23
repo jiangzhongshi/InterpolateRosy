@@ -112,7 +112,7 @@ pybind11_add_module(rosy
 #target_link_libraries(rosy ${PYTHON_LIBRARIES})
 target_compile_definitions(rosy PRIVATE PYBIND)
 
-add_executable(cmdln
-   src/main.cpp
-   src/hierarchy.cpp
-)
+#add_executable(cmdln
+#   src/main.cpp
+#   src/hierarchy.cpp
+#)
