@@ -60,20 +60,6 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU"
 endif()
 
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR})
-find_package(LIBIGL REQUIRED QUIET)
-# Header file directories of dependency libraries
-include_directories(
-  # Eigen
-  ${CMAKE_CURRENT_SOURCE_DIR}/ext/nanoguig/ext/eigen
-  # Pseudorandom number generator
-  ${CMAKE_CURRENT_SOURCE_DIR}/ext/pcg32
-  # libIGL
-  ${LIBIGL_INCLUDE_DIR}
-  # pybind11
-  # ${CMAKE_CURRENT_SOURCE_DIR}/ext/pybind11/include
-  # python 
-  # ${PYTHON_INCLUDE_DIR}
-)
 
 # add_definitions(-DSINGLE_PRECISION)
 # #add_definitions(-DT_VTAG)
@@ -125,8 +111,17 @@ option(LIBIGL_WITH_TRIANGLE         "Use Triangle"       OFF)
 option(LIBIGL_WITH_VIEWER           "Use OpenGL viewer"  OFF)
 option(LIBIGL_WITH_XML              "Use XML"            OFF)
 option(LIBIGL_WITH_LIM              "Use LIM"            OFF)
-option(ROSY_WITH_REMESH "Add CGAL and remeshing" OFF)
+option(ROSY_WITH_REMESH "Add CGAL and remeshing" ON)
 
+find_package(LIBIGL REQUIRED QUIET)
+# Header file directories of dependency libraries
+include_directories(
+  # Eigen
+  ${CMAKE_CURRENT_SOURCE_DIR}/ext/nanoguig/ext/eigen
+  # Pseudorandom number generator
+  ${CMAKE_CURRENT_SOURCE_DIR}/ext/pcg32
+  # libIGL
+)
 include_directories(${PYTHON_INCLUDE_DIR} include)
 pybind11_add_module(rosy 
     src/bind.cpp 
