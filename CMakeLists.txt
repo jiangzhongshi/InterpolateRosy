@@ -59,7 +59,8 @@ if (CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU"
   endif()
 endif()
 
-
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR})
+find_package(LIBIGL REQUIRED QUIET)
 # Header file directories of dependency libraries
 include_directories(
   # Eigen
@@ -67,7 +68,7 @@ include_directories(
   # Pseudorandom number generator
   ${CMAKE_CURRENT_SOURCE_DIR}/ext/pcg32
   # libIGL
-  $ENV{LIBIGL_INCLUDE_DIR}
+  ${LIBIGL_INCLUDE_DIR}
   # pybind11
   # ${CMAKE_CURRENT_SOURCE_DIR}/ext/pybind11/include
   # python 
@@ -102,8 +103,7 @@ include_directories(
 # if (UNIX AND NOT ${U_CMAKE_BUILD_TYPE} MATCHES DEBUG)
 # add_custom_command(TARGET robust_hex_dominant_meshing POST_BUILD COMMAND strip $<TARGET_FILE:robust_hex_dominant_meshing>)
 # endif()
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR})
-find_package(LIBIGL REQUIRED QUIET)
+
 
 
 option(LIBIGL_USE_STATIC_LIBRARY "Use libigl as static library" OFF)
@@ -125,6 +125,7 @@ option(LIBIGL_WITH_TRIANGLE         "Use Triangle"       OFF)
 option(LIBIGL_WITH_VIEWER           "Use OpenGL viewer"  OFF)
 option(LIBIGL_WITH_XML              "Use XML"            OFF)
 option(LIBIGL_WITH_LIM              "Use LIM"            OFF)
+option(ROSY_WITH_REMESH "Add CGAL and remeshing" OFF)
 
 include_directories(${PYTHON_INCLUDE_DIR} include)
 pybind11_add_module(rosy 
@@ -133,7 +134,11 @@ pybind11_add_module(rosy
     src/hierarchy.cpp)
 #target_link_libraries(rosy ${PYTHON_LIBRARIES})
 target_link_libraries(rosy PUBLIC igl::core)
+
+if(ROSY_WITH_REMESH)
 target_link_libraries(rosy PUBLIC igl::cgal)
+endif()
+
 target_compile_definitions(rosy PRIVATE PYBIND)
 
 #add_executable(cmdln

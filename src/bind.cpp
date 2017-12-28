@@ -4,22 +4,19 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/eigen.h>
 #include <pybind11/stl.h>
+#include <fstream>
+#include <vector>
+#include <igl/readOBJ.h>
+#include <igl/writeOBJ.h>
+#include <igl/readOFF.h>
+
+#ifdef REMESHER
 
 #include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
 #include <CGAL/Surface_mesh.h>
 #include <CGAL/Polygon_mesh_processing/remesh.h>
 #include <CGAL/Polygon_mesh_processing/border.h>
 #include <boost/function_output_iterator.hpp>
-#include <fstream>
-#include <vector>
-#include <igl/readOBJ.h>
-#include <igl/writeOBJ.h>
-#include <pybind11/pybind11.h>
-#include <pybind11/eigen.h>
-#include <pybind11/stl.h>
-
-#include <igl/readOFF.h>
-
 namespace MyCGAL{
 typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
 typedef CGAL::Surface_mesh<K::Point_3> Mesh;
@@ -128,6 +125,7 @@ bool read_off(const Eigen::MatrixXd& V,
     return true;
   }
 }
+#endif
 
 #include "common.h"
 #include "hierarchy.h"
@@ -215,7 +213,7 @@ PYBIND11_MODULE(rosy, m) {
        qslim_to_fn(V,F,max_m, U,G,MG);
        return std::make_tuple(U,G,MG);
     });
-
+#ifdef REMESHER
     m.def("isotropic_remeshing", [](const Eigen::MatrixXd &V, const Eigen::MatrixXi &F, double target_edge_length){
         using namespace MyCGAL;
         MyCGAL::Mesh mesh;
@@ -239,5 +237,6 @@ PYBIND11_MODULE(rosy, m) {
         write_off(mesh, V2, F2);
         return std::make_tuple(V2,F2);
     });
+#endif
 }
 #endif
