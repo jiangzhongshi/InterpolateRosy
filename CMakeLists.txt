@@ -132,6 +132,7 @@ target_link_libraries(rosy PUBLIC igl::core)
 
 if(ROSY_WITH_REMESH)
 target_link_libraries(rosy PUBLIC igl::cgal)
+target_compile_definitions(rosy PRIVATE REMESHER)
 endif()
 
 target_compile_definitions(rosy PRIVATE PYBIND)
