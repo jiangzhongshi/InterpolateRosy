@@ -191,7 +191,7 @@ bool MultiResolutionHierarchy::load(const std::string &filename) {
 
 
 void MultiResolutionHierarchy::build(const Eigen::VectorXi &b,
-                      const MatrixXf &bc) {
+                      const MatrixXf &bc, bool use_boundary) {
 	Timer<> timer;
 	mV.resize(1);
 
@@ -247,13 +247,15 @@ void MultiResolutionHierarchy::build(const Eigen::VectorXi &b,
 		construct_tEs_tFEs(mF, nFes, nEs);
 		//nV_nes, tag boundary V
 		nV_nes.clear(); nV_nes.resize(mV[0].cols());
-		for (uint32_t i = 0; i < nEs.size(); i++) {
-			uint32_t v0 = std::get<0>(nEs[i]);
-			uint32_t v1 = std::get<1>(nEs[i]);
-			nV_nes[v0].push_back(i);
-			nV_nes[v1].push_back(i);
-			if (std::get<2>(nEs[i])) {
-				nV_boundary_flag[0][v0] = nV_boundary_flag[0][v1] = true;
+		if (use_boundary){
+			for (uint32_t i = 0; i < nEs.size(); i++) {
+				uint32_t v0 = std::get<0>(nEs[i]);
+				uint32_t v1 = std::get<1>(nEs[i]);
+				nV_nes[v0].push_back(i);
+				nV_nes[v1].push_back(i);
+				if (std::get<2>(nEs[i])) {
+					nV_boundary_flag[0][v0] = nV_boundary_flag[0][v1] = true;
+				}
 			}
 		}
 

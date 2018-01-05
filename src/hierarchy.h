@@ -34,7 +34,8 @@ public:
 
   //protected:
 	void build(const Eigen::VectorXi &b,
-                      const MatrixXf &bc);
+                      const MatrixXf &bc,
+                      bool use_boundary = true);
 	void construct_tEs_tFEs(MatrixXu & F, std::vector<std::vector<uint32_t>> &mtFes, std::vector<tuple_E> &mtEs);
 
   MatrixXf &V(uint32_t i = 0) { return mV[i]; }

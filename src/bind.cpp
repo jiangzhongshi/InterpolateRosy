@@ -143,18 +143,18 @@ MatrixXf rosy_process(const MatrixXf &V,
                       const MatrixXu &F,
                       const Eigen::VectorXi &b,
                       const MatrixXf &bc,
-                      Float scale,
-                      int smooth_iter) {
+                      int smooth_iter,
+                      bool conform_boundary) {
 
     MultiResolutionHierarchy mRes;
     Timer<> timer;
     timer.beginStage("data pre-processing");
     mRes.load(V,F);
 
-    mRes.build(b,bc);
+    mRes.build(b,bc, conform_boundary);
     assert(!mRes.mQ[0].hasNaN());
 
-    mRes.setScale(scale);
+    mRes.setScale(1);
     timer.endStage();
 
     timer.beginStage("rosy optimization");
@@ -196,8 +196,8 @@ PYBIND11_MODULE(rosy, m) {
 
     m.def("add_any", [](py::EigenDRef<Eigen::MatrixXd> x, int r, int c, double v) { x(r,c) += v; });
     m.def("smooth_field", [](const MatrixXf &V, const MatrixXu &F, const Eigen::VectorXi&b, 
-                                const MatrixXf &bc, Float s, int iter){
-        return rosy_process(V,F,b,bc, s,iter);
+                                const MatrixXf &bc, int iter, bool conform_boundary) {
+        return rosy_process(V, F, b, bc, iter, conform_boundary);
     });
     m.def("decimate_to_maxf", [](const Eigen::MatrixXd& V, const Eigen::MatrixXi&F, int max_m) {
        Eigen::MatrixXd U;

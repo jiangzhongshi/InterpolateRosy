@@ -58,10 +58,10 @@ class CMakeBuild(build_ext):
 
 setup(
     name='rosy',
-    version='0.0.1',
+    version='0.0.2',
     author='Zhongshi Jiang',
     author_email='jiangzs@nyu.edu',
-    description='some simple pybind11',
+    description='Cross Utils',
     long_description='',
     ext_modules=[CMakeExtension('rosy')],
     cmdclass=dict(build_ext=CMakeBuild),
