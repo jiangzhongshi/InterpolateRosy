@@ -230,7 +230,7 @@ PYBIND11_MODULE(rosy, m) {
             target_edge_length,
             mesh,
             PMP::parameters::number_of_iterations(nb_iter)
-            .protect_constraints(true)//i.e. protect border, here
+            .protect_constraints(false)//i.e. protect border, here
             );
         Eigen::MatrixXd V2;
         Eigen::MatrixXi F2;
