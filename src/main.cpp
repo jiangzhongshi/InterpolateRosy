@@ -1,281 +1,114 @@
-#include "timer.h"
-#include <igl/readOBJ.h>
-#include <igl/decimate.h>
-#include <igl/max_faces_stopping_condition.h>
-#include <igl/shortest_edge_and_midpoint.h>
-#include <igl/collapse_edge.h>
-#include <igl/connect_boundary_to_infinity.h>
-#include <igl/decimate.h>
-#include <igl/edge_flaps.h>
-#include <igl/max_faces_stopping_condition.h>
-#include <igl/per_vertex_point_to_plane_quadrics.h>
-#include <igl/qslim_optimal_collapse_edge_callbacks.h>
-#include <igl/quadric_binary_plus_operator.h>
-#include <igl/remove_unreferenced.h>
-#include <igl/slice.h>
-#include <igl/slice_mask.h>
 
-void composite_combine_mapping(const std::vector<std::pair<int,int>>& combined_pairs,
-                                int nv,
-                               Eigen::VectorXi& MG) 
+#include <CGAL/Exact_predicates_inexact_constructions_kernel.h>
+#include <CGAL/Surface_mesh.h>
+#include <CGAL/Polygon_mesh_processing/remesh.h>
+#include <CGAL/Polygon_mesh_processing/border.h>
+#include <boost/function_output_iterator.hpp>
+#include <fstream>
+#include <vector>
+#include <igl/readOFF.h>
+
+template <typename P>
+bool read_off(const Eigen::MatrixXd& V,
+              const Eigen::MatrixXi& F,
+              CGAL::Surface_mesh<P>& sm)
 {
-    // verify with these two lines
-    //std::vector<std::pair<int,int>> pairs {{3,5},{2,3},{1,2},{0,4}};
-    //composite_combine_mapping(pairs, 6, I) ;
-    MG = Eigen::VectorXi::LinSpaced(nv, 0,nv-1);
-    auto valid =std::vector<bool>(nv,true);// Eigen::Matrix<bool, -1, 1>::Constant(nv,true);
-    
-    // get grouping and valid from collapsed_verts
-    for (auto v0v1: combined_pairs) {
-      auto v_min = std::min(v0v1.first,v0v1.second);
-      auto v_max = std::max(v0v1.first,v0v1.second);
+  using namespace CGAL;
+  typedef Surface_mesh<P> Mesh;
+  typedef typename Kernel_traits<P>::Kernel K;
+  typedef typename K::Vector_3 Vector_3;
+  typedef typename Mesh::Face_index Face_index;
+  typedef typename Mesh::Vertex_index Vertex_index;
+  typedef typename Mesh::size_type size_type;
+  int n, f, e = 0;
+  std::string off;
 
-      valid[v_max] = false;
-      assert(MG(v_min) == v_min && "v_min shouldn't be touched");
-      MG(v_max) = v_min;
-    }
+  n = V.rows();
+  f = F.rows();
 
-    // recover from valid
-    for(int i=0; i<nv; i++) {
-        if (!valid[MG(i)]) {
-            MG(i) = MG(MG(i));
-        }
-    }
-}
+  sm.reserve(V.rows(), F.rows()*2, F.rows());
+  std::vector<Vertex_index> vertexmap(n);
+  P p;
+  Vector_3 v;
+  typename Mesh::template Property_map<Vertex_index,CGAL::Color> vcolor;
+  typename Mesh::template Property_map<Vertex_index,Vector_3> vnormal;
+  bool vcolored = false, v_has_normals = false;
 
+  char ci;
 
-bool qslim_to_fn(
-  const Eigen::MatrixXd & V,
-  const Eigen::MatrixXi & F,
-  const size_t max_m,
-  Eigen::MatrixXd & U,
-  Eigen::MatrixXi & G,
-  Eigen::VectorXi & MG)
-{
-  using namespace igl;
-   Eigen::VectorXi I,J;
-  // Original number of faces
-  const int orig_m = F.rows();
-  // Tracking number of faces
-  int m = F.rows();
-  typedef Eigen::MatrixXd DerivedV;
-  typedef Eigen::MatrixXi DerivedF;
-  DerivedV VO;
-  DerivedF FO;
-  igl::connect_boundary_to_infinity(V,F,VO,FO);
-  // decimate will not work correctly on non-edge-manifold meshes. By extension
-  // this includes meshes with non-manifold vertices on the boundary since these
-  // will create a non-manifold edge when connected to infinity.
-  if(!is_edge_manifold(FO))
-  {
-    return false;
+  for(int i=0; i < n; i++){
+    Vertex_index vi = sm.add_vertex(P(V(i,0), V(i,1), V(i,2)));
+    vertexmap[i] = vi;
   }
-  Eigen::VectorXi EMAP;
-  Eigen::MatrixXi E,EF,EI;
-  edge_flaps(FO,E,EMAP,EF,EI);
-  // Quadrics per vertex
-  typedef std::tuple<Eigen::MatrixXd,Eigen::RowVectorXd,double> Quadric;
-  std::vector<Quadric> quadrics;
-  per_vertex_point_to_plane_quadrics(VO,FO,EMAP,EF,EI,quadrics);
-  // State variables keeping track of edge we just collapsed
-  std::vector<std::pair<int,int>> collapsed_verts;
-  int v1 = -1;
-  int v2 = -1;
-  // Callbacks for computing and updating metric
-  std::function<void(
-    const int e,
-    const Eigen::MatrixXd &,
-    const Eigen::MatrixXi &,
-    const Eigen::MatrixXi &,
-    const Eigen::VectorXi &,
-    const Eigen::MatrixXi &,
-    const Eigen::MatrixXi &,
-    double &,
-    Eigen::RowVectorXd &)> cost_and_placement;
-  std::function<bool(
-    const Eigen::MatrixXd &                                         ,/*V*/
-    const Eigen::MatrixXi &                                         ,/*F*/
-    const Eigen::MatrixXi &                                         ,/*E*/
-    const Eigen::VectorXi &                                         ,/*EMAP*/
-    const Eigen::MatrixXi &                                         ,/*EF*/
-    const Eigen::MatrixXi &                                         ,/*EI*/
-    const std::set<std::pair<double,int> > &                        ,/*Q*/
-    const std::vector<std::set<std::pair<double,int> >::iterator > &,/*Qit*/
-    const Eigen::MatrixXd &                                         ,/*C*/
-    const int                                                        /*e*/
-    )> pre_collapse;
-  std::function<void(
-    const Eigen::MatrixXd &                                         ,   /*V*/
-    const Eigen::MatrixXi &                                         ,   /*F*/
-    const Eigen::MatrixXi &                                         ,   /*E*/
-    const Eigen::VectorXi &                                         ,/*EMAP*/
-    const Eigen::MatrixXi &                                         ,  /*EF*/
-    const Eigen::MatrixXi &                                         ,  /*EI*/
-    const std::set<std::pair<double,int> > &                        ,   /*Q*/
-    const std::vector<std::set<std::pair<double,int> >::iterator > &, /*Qit*/
-    const Eigen::MatrixXd &                                         ,   /*C*/
-    const int                                                       ,   /*e*/
-    const int                                                       ,  /*e1*/
-    const int                                                       ,  /*e2*/
-    const int                                                       ,  /*f1*/
-    const int                                                       ,  /*f2*/
-    const bool                                                  /*collapsed*/
-    )> post_collapse;
-  qslim_optimal_collapse_edge_callbacks(
-    E,quadrics,v1,v2, cost_and_placement, pre_collapse,post_collapse);
+  std::vector<Vertex_index> vr;
+  size_type d, vi;
+  bool fcolored = false;
+  typename Mesh::template Property_map<Face_index,CGAL::Color> fcolor;
 
-
-     post_collapse = [&v1,&v2,&quadrics,& collapsed_verts](
-      const Eigen::MatrixXd &                                         ,   /*V*/
-      const Eigen::MatrixXi &                                         ,   /*F*/
-      const Eigen::MatrixXi &                                         ,   /*E*/
-      const Eigen::VectorXi &                                         ,/*EMAP*/
-      const Eigen::MatrixXi &                                         ,  /*EF*/
-      const Eigen::MatrixXi &                                         ,  /*EI*/
-      const std::set<std::pair<double,int> > &                        ,   /*Q*/
-      const std::vector<std::set<std::pair<double,int> >::iterator > &, /*Qit*/
-      const Eigen::MatrixXd &                                         ,   /*C*/
-      const int                                                       ,   /*e*/
-      const int                                                       ,  /*e1*/
-      const int                                                       ,  /*e2*/
-      const int                                                       ,  /*f1*/
-      const int                                                       ,  /*f2*/
-      const bool                                                  collapsed
-      )->void
-  {
-    if(collapsed)
+  for(int i=0; i < f; i++){
+    d = 3;
+    vr.resize(3);
+    for(std::size_t j=0; j<d; j++){
+      vi = F(i,j);
+      vr[j] = vertexmap[vi];
+    }
+    Face_index fi = sm.add_face(vr);
+    if(fi == sm.null_face())
     {
-      quadrics[v1<v2?v1:v2] = quadrics[v1] + quadrics[v2];
-       collapsed_verts.push_back(std::make_pair(v1,v2));
+      sm.clear();
+      return false;
     }
-  };
-  // Call to greedy decimator
-  bool ret = decimate(
-    VO, FO,
-    cost_and_placement,
-    max_faces_stopping_condition(m,orig_m,max_m),
-    pre_collapse,
-    post_collapse,
-    E, EMAP, EF, EI,
-    U, G, J, I);
-  // Remove phony boundary faces and clean up
-  const Eigen::Array<bool,Eigen::Dynamic,1> keep = (J.array()<orig_m);
-  igl::slice_mask(Eigen::MatrixXi(G),keep,1,G);
-  igl::slice_mask(Eigen::VectorXi(J),keep,1,J);
-  Eigen::VectorXi _1,I2;
-  igl::remove_unreferenced(Eigen::MatrixXd(U),Eigen::MatrixXi(G),U,G,_1,I2);
-  igl::slice(Eigen::VectorXi(I),I2,1,I);
-    composite_combine_mapping(collapsed_verts, V.rows(), MG);
-
-
-  return ret;
-}
-
-
-bool decimate_to_fn(const Eigen::MatrixXd& V,
-                    const Eigen::MatrixXi& F,
-                    int max_m,
-                    Eigen::MatrixXd& U,
-                    Eigen::MatrixXi& G,
-                    Eigen::VectorXi& MG)
-{
-    // modified pre/post collapse to add a MG based on igl::decimate
-    using namespace Eigen;
-    using namespace std;
-    using namespace igl;
-
-    Eigen::VectorXi I,J;
-
-     // Original number of faces
-  const int orig_m = F.rows();
-  // Tracking number of faces
-  int m = F.rows();
-  typedef Eigen::MatrixXd DerivedV;
-  typedef Eigen::MatrixXi DerivedF;
-  DerivedV VO;
-  DerivedF FO;
-  igl::connect_boundary_to_infinity(V,F,VO,FO);
-  // decimate will not work correctly on non-edge-manifold meshes. By extension
-  // this includes meshes with non-manifold vertices on the boundary since these
-  // will create a non-manifold edge when connected to infinity.
-  if(!is_edge_manifold(FO))
-  {
-    return false;
+   
   }
-
-  std::vector<std::pair<int,int>> collapsed_verts;
-  int v0, v1;
-  const auto always_try = [&collapsed_verts, &v0,&v1](
-    const Eigen::MatrixXd &                                         ,/*V*/
-    const Eigen::MatrixXi &                                         ,/*F*/
-    const Eigen::MatrixXi &E                                         ,/*E*/
-    const Eigen::VectorXi &                                         ,/*EMAP*/
-    const Eigen::MatrixXi &                                         ,/*EF*/
-    const Eigen::MatrixXi &                                         ,/*EI*/
-    const std::set<std::pair<double,int> > &                        ,/*Q*/
-    const std::vector<std::set<std::pair<double,int> >::iterator > &,/*Qit*/
-    const Eigen::MatrixXd &                                         ,/*C*/
-    const int e                                                       /*e*/
-    ) -> bool {
-        // std::cout<<"pre"<<E(e,0)<<std::endl;
-        v0 = E(e,0);
-        v1 = E(e,1);
-        return true;
-     };
-  const auto never_care = [&collapsed_verts,&v0,&v1](
-    const Eigen::MatrixXd &                                         ,   /*V*/
-    const Eigen::MatrixXi &                                         ,   /*F*/
-    const Eigen::MatrixXi &                                         ,   /*E*/
-    const Eigen::VectorXi &                                         ,/*EMAP*/
-    const Eigen::MatrixXi &                                         ,  /*EF*/
-    const Eigen::MatrixXi &                                         ,  /*EI*/
-    const std::set<std::pair<double,int> > &                        ,   /*Q*/
-    const std::vector<std::set<std::pair<double,int> >::iterator > &, /*Qit*/
-    const Eigen::MatrixXd &                                         ,   /*C*/
-    const int                                                       ,   /*e*/
-    const int                                                       ,  /*e1*/
-    const int                                                       ,  /*e2*/
-    const int                                                       ,  /*f1*/
-    const int                                                       ,  /*f2*/
-    const bool collapsed                                                 /*collapsed*/
-    )-> void { 
-        if (collapsed) {
-            collapsed_verts.push_back(std::make_pair(v0,v1));
-        }
-    };
-
-  bool ret = decimate(
-    VO,
-    FO,
-    shortest_edge_and_midpoint,
-    max_faces_stopping_condition(m,orig_m,max_m),
-    always_try,
-    never_care,
-    U,
-    G,
-    J,
-    I);
-  const Eigen::Array<bool,Eigen::Dynamic,1> keep = (J.array()<orig_m);
-  igl::slice_mask(Eigen::MatrixXi(G),keep,1,G);
-  igl::slice_mask(Eigen::VectorXi(J),keep,1,J);
-  Eigen::VectorXi _1,I2;
-  igl::remove_unreferenced(Eigen::MatrixXd(U),Eigen::MatrixXi(G),U,G,_1,I2);
-  igl::slice(Eigen::VectorXi(I),I2,1,I);
-
-  composite_combine_mapping(collapsed_verts, V.rows(), MG);
-  return ret;
+  return true;
 }
-
-
 
 int main(int argc, char **argv) {
-    Eigen::MatrixXd V,U;
-    Eigen::MatrixXi F,G;
-    Eigen::VectorXi I,J;
-    igl::readOBJ("../dataset/deformed_armadillo.obj",V,F);
-    
-    decimate_to_fn(V,F,500,U,G, I);
-
-    std::cout<<"Yeswe can"<<I<<std::endl;
-	return EXIT_SUCCESS;
+  typedef CGAL::Exact_predicates_inexact_constructions_kernel K;
+typedef CGAL::Surface_mesh<K::Point_3> Mesh;
+typedef boost::graph_traits<Mesh>::halfedge_descriptor halfedge_descriptor;
+typedef boost::graph_traits<Mesh>::edge_descriptor     edge_descriptor;
+namespace PMP = CGAL::Polygon_mesh_processing;
+struct halfedge2edge
+{
+  halfedge2edge(const Mesh& m, std::vector<edge_descriptor>& edges)
+    : m_mesh(m), m_edges(edges)
+  {}
+  void operator()(const halfedge_descriptor& h) const
+  {
+    m_edges.push_back(edge(h, m_mesh));
+  }
+  const Mesh& m_mesh;
+  std::vector<edge_descriptor>& m_edges;
+};
+  const char* filename = (argc > 1) ? argv[1] : "data/pig.off";
+  Mesh mesh;
+  // if (!input || !(input >> mesh) || !CGAL::is_triangle_mesh(mesh)) {
+  //   std::cerr << "Not a valid input file." << std::endl;
+  //   return 1;
+  // }
+  Eigen::MatrixXd V;
+  Eigen::MatrixXi F;
+  igl::readOBJ(filename, V,F);
+  read_off(V,F, mesh);
+  double target_edge_length = 0.008296;
+  unsigned int nb_iter = 3;
+  std::cout << "Split border...";
+    std::vector<edge_descriptor> border;
+    PMP::border_halfedges(faces(mesh),
+      mesh,
+      boost::make_function_output_iterator(halfedge2edge(mesh, border)));
+    PMP::split_long_edges(border, target_edge_length, mesh);
+  std::cout << "done." << std::endl;
+  std::cout << "Start remeshing of " << filename
+    << " (" << num_faces(mesh) << " faces)..." << std::endl;
+  PMP::isotropic_remeshing(
+      faces(mesh),
+      target_edge_length,
+      mesh,
+      PMP::parameters::number_of_iterations(nb_iter)
+      .protect_constraints(false)//i.e. protect border, here
+      );
+  std::cout << "Remeshing done." << std::endl;
+  return 0;
 }

@@ -132,12 +132,7 @@ bool read_off(const Eigen::MatrixXd& V,
 #include "timer.h"
 using MatrixXdR = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 
-bool decimate_to_fn(const Eigen::MatrixXd& V,
-                    const Eigen::MatrixXi& F,
-                    int max_m,
-                    Eigen::MatrixXd& U,
-                    Eigen::MatrixXi& G,
-                    Eigen::VectorXi& MG);
+#include "customized_decimation.h"
 
 MatrixXf rosy_process(const MatrixXf &V,
                       const MatrixXu &F,
@@ -181,14 +176,6 @@ MatrixXf rosy_process(const MatrixXf &V,
     return mRes.mQ[0];
 }
 
-
-bool qslim_to_fn(
-  const Eigen::MatrixXd & V,
-  const Eigen::MatrixXi & F,
-  const size_t max_m,
-  Eigen::MatrixXd & U,
-  Eigen::MatrixXi & G,
-  Eigen::VectorXi & MG);
 
 namespace py = pybind11;
 PYBIND11_MODULE(rosy, m) {
