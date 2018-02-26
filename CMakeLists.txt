@@ -94,7 +94,6 @@ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${CMAKE_CURRENT_SOURCE_DIR})
 
 option(LIBIGL_USE_STATIC_LIBRARY "Use libigl as static library" OFF)
 option(LIBIGL_WITH_ANTTWEAKBAR      "Use AntTweakBar"    OFF)
-option(LIBIGL_WITH_CGAL             "Use CGAL"           OFF)
 option(LIBIGL_WITH_COMISO           "Use CoMiso"         OFF)
 option(LIBIGL_WITH_CORK             "Use Cork"           OFF)
 option(LIBIGL_WITH_EMBREE           "Use Embree"         OFF)
@@ -114,7 +113,7 @@ option(LIBIGL_WITH_LIM              "Use LIM"            OFF)
 option(ROSY_WITH_REMESH "Add CGAL and remeshing" ON)
 
 if(ROSY_WITH_REMESH)
-    option(LIBIGL_WITH_CGAL             "Use CGAL"           ON)
+    set(LIBIGL_WITH_CGAL ON)
 endif()
 
 find_package(LIBIGL REQUIRED QUIET)

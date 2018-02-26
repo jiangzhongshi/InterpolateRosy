@@ -1,4 +1,5 @@
 
+#define PYBIND true
 #if PYBIND
 
 #include <pybind11/pybind11.h>
@@ -173,6 +174,13 @@ MatrixXf rosy_process(const MatrixXf &V,
         }
     }
     timer.endStage();
+
+    std::cout<<"Verifing mN[0]*mQ[0]"<<std::endl;
+    double sum = 0;
+    for (int i=0; i<mRes.mN[0].cols(); i++) {
+        std::cout<<i<<" "<<mRes.mN[0].col(i).transpose()*(mRes.mQ[0].col(i))<<std::endl;
+    }
+
     return mRes.mQ[0];
 }
 
