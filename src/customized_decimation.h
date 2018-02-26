@@ -1,4 +1,4 @@
-#ifdef CUSTOMIZED_DECIMATION_H
+#ifndef CUSTOMIZED_DECIMATION_H
 #define CUSTOMIZED_DECIMATION_H
 
 #include "timer.h"

@@ -7,6 +7,7 @@
 #include <fstream>
 #include <vector>
 #include <igl/readOFF.h>
+#include <igl/readOBJ.h>
 
 template <typename P>
 bool read_off(const Eigen::MatrixXd& V,
